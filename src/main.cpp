@@ -17,7 +17,7 @@ void setup() {
   setupUltrasonic();
   setupServoScan();
   setupObstacleAvoidance();
-  setDriveMode(DriveMode::Manual);
+  setDriveMode(DriveMode::Auto);
   resetCommandTimer();
 
   Serial.println();
