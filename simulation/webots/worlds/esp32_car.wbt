@@ -1,0 +1,404 @@
+#VRML_SIM R2025a utf8
+
+WorldInfo {
+  title "ESP32 Robot - Web Control"
+  basicTimeStep 16
+  contactProperties [
+    ContactProperties {
+      material1 "caster"
+      material2 "floor"
+      coulombFriction [
+        0.01
+      ]
+    }
+    ContactProperties {
+      material1 "tire"
+      material2 "floor"
+    }
+  ]
+}
+Viewpoint {
+  orientation 0.15796929571029392 -0.8371559843522498 -0.5236559552568935 5.591460809378537
+  position -6.116288206805968 -4.149481767767224 6.62778452481162
+}
+Background {
+  skyColor [
+    0.12 0.16 0.21
+  ]
+}
+DirectionalLight {
+  ambientIntensity 0.5
+  direction -1 -1 -3
+}
+Solid {
+  translation 0 0 -0.05
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.38 0.43 0.48
+        roughness 1
+        metalness 0
+      }
+      geometry DEF FLOOR Box {
+        size 4.4 4.4 0.1
+      }
+    }
+  ]
+  name "floor"
+  contactMaterial "floor"
+  boundingObject USE FLOOR
+}
+Solid {
+  translation 2.2 0 0.15
+  children [
+    Shape {
+      appearance DEF WALL_COLOR PBRAppearance {
+        baseColor 0.65 0.7 0.75
+        roughness 1
+        metalness 0
+      }
+      geometry DEF WALL_X Box {
+        size 0.08 4.4 0.3
+      }
+    }
+  ]
+  name "east wall"
+  boundingObject USE WALL_X
+}
+Solid {
+  translation -2.2 0 0.15
+  children [
+    Shape {
+      appearance USE WALL_COLOR
+      geometry USE WALL_X
+    }
+  ]
+  name "west wall"
+  boundingObject USE WALL_X
+}
+Solid {
+  translation 0 2.2 0.15
+  children [
+    Shape {
+      appearance USE WALL_COLOR
+      geometry DEF WALL_Y Box {
+        size 4.4 0.08 0.3
+      }
+    }
+  ]
+  name "north wall"
+  boundingObject USE WALL_Y
+}
+Solid {
+  translation 0 -2.2 0.15
+  children [
+    Shape {
+      appearance USE WALL_COLOR
+      geometry USE WALL_Y
+    }
+  ]
+  name "south wall"
+  boundingObject USE WALL_Y
+}
+Solid {
+  translation 0.65 0 0.15
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 0.4 0.08
+        roughness 1
+        metalness 0
+      }
+      geometry DEF FRONT_OBSTACLE Box {
+        size 0.3 0.65 0.3
+      }
+    }
+  ]
+  name "front obstacle"
+  boundingObject USE FRONT_OBSTACLE
+}
+Solid {
+  translation -0.25 1.1 0.15
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.25 0.65 0.85
+        roughness 1
+        metalness 0
+      }
+      geometry DEF SIDE_OBSTACLE Box {
+        size 0.45 0.4 0.3
+      }
+    }
+  ]
+  name "left obstacle"
+  boundingObject USE SIDE_OBSTACLE
+}
+Solid {
+  translation 0.8 -1.1 0.15
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.65 0.4 0.85
+        roughness 1
+        metalness 0
+      }
+      geometry USE SIDE_OBSTACLE
+    }
+  ]
+  name "right obstacle"
+  boundingObject USE SIDE_OBSTACLE
+}
+DEF CAR Robot {
+  translation 1.855490910989925 -1.27425330823626 0.06492598961350891
+  rotation 3.92677482941576e-05 -5.091603392524981e-05 -0.9999999979328008 -1.3138953434615885
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.05 0.5 0.38
+        roughness 0.7
+        metalness 0
+      }
+      geometry DEF CHASSIS Box {
+        size 0.26 0.16 0.05
+      }
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        position 341.09888011658273
+        axis 0 1 0
+        anchor 0 0.1 -0.025
+      }
+      device [
+        RotationalMotor {
+          name "left wheel motor"
+          maxTorque 2
+        }
+      ]
+      endPoint Solid {
+        translation 0 0.1 -0.025
+        rotation 0.4867240296816396 -0.6176972231337142 -0.6176972231306898 -2.235651579702907
+        children [
+          Shape {
+            appearance DEF RUBBER PBRAppearance {
+              baseColor 0.03 0.035 0.04
+              roughness 1
+              metalness 0
+            }
+            geometry DEF WHEEL Cylinder {
+              height 0.025
+              radius 0.04
+              subdivision 24
+            }
+          }
+        ]
+        name "left wheel"
+        contactMaterial "tire"
+        boundingObject USE WHEEL
+        physics Physics {
+          density -1
+          mass 0.04
+        }
+        linearVelocity 5.581027212566036e-15 -1.6895024008991751e-15 -1.1250835912486022e-16
+        angularVelocity -1.290629856987195e-15 -5.092072691351078e-15 -9.566563981869353e-17
+      }
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        position 386.19267073314325
+        axis 0 1 0
+        anchor 0 -0.1 -0.025
+      }
+      device [
+        RotationalMotor {
+          name "right wheel motor"
+          maxTorque 2
+        }
+      ]
+      endPoint Solid {
+        translation 0 -0.1 -0.025
+        rotation 0.07900383645087 -0.7048965859723361 -0.7048965859688845 3.2992728115959924
+        children [
+          Shape {
+            appearance USE RUBBER
+            geometry USE WHEEL
+          }
+        ]
+        name "right wheel"
+        contactMaterial "tire"
+        boundingObject USE WHEEL
+        physics Physics {
+          density -1
+          mass 0.04
+        }
+        linearVelocity -6.4494416826126385e-15 1.7675355231720284e-15 3.39231129981115e-17
+        angularVelocity -7.616181192295787e-16 -4.268644829170349e-15 2.575620391756405e-16
+      }
+    }
+    Solid {
+      translation 0.1 0 -0.055
+      children [
+        Shape {
+          appearance USE RUBBER
+          geometry DEF CASTER Sphere {
+            radius 0.01
+          }
+        }
+      ]
+      name "front caster"
+      contactMaterial "caster"
+      boundingObject USE CASTER
+      physics Physics {
+        density -1
+        mass 0.005
+      }
+    }
+    Solid {
+      translation -0.1 0 -0.055
+      children [
+        Shape {
+          appearance USE RUBBER
+          geometry USE CASTER
+        }
+      ]
+      name "rear caster"
+      contactMaterial "caster"
+      boundingObject USE CASTER
+      physics Physics {
+        density -1
+        mass 0.005
+      }
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        position 1.5990952415515123e-19
+        axis 0 0 1
+        anchor 0.1 0 0.045
+      }
+      device [
+        RotationalMotor {
+          name "scanner motor"
+          maxVelocity 8
+          minPosition -1.4
+          maxPosition 1.4
+          maxTorque 0.5
+        }
+      ]
+      endPoint Solid {
+        translation 0.1 0 0.045
+        rotation -0.05121475197306363 0.9986876634747408 -1.923631008603652e-06 0
+        children [
+          Shape {
+            appearance PBRAppearance {
+              baseColor 0.1 0.2 0.65
+              roughness 1
+              metalness 0
+            }
+            geometry DEF SCANNER Box {
+              size 0.045 0.06 0.025
+            }
+          }
+          DistanceSensor {
+            translation 0.025 0 0
+            name "sonar"
+            lookupTable [
+              0 0 0
+              2 200 0
+            ]
+            type "sonar"
+            numberOfRays 5
+            aperture 0.26
+          }
+        ]
+        name "sensor mount"
+        boundingObject USE SCANNER
+        physics Physics {
+          density -1
+          mass 0.02
+        }
+        linearVelocity 3.533399107336996e-15 -2.797276686355152e-15 2.5784328452437566e-16
+        angularVelocity -5.889933330236606e-16 -5.758527957940864e-16 -3.220422692917809e-15
+      }
+    }
+    LED {
+      translation 0.105 0.055 0.033
+      children [
+        Shape {
+          appearance DEF LED_APPEARANCE PBRAppearance {
+            baseColor 0.4 0.4 0.2
+            roughness 1
+            metalness 0
+          }
+          geometry DEF LED_SHAPE Sphere {
+            radius 0.008
+          }
+        }
+      ]
+      name "front left led"
+      color [
+        1 0.85 0.2
+      ]
+    }
+    LED {
+      translation 0.105 -0.055 0.033
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.4 0.4 0.2
+            roughness 1
+            metalness 0
+          }
+          geometry USE LED_SHAPE
+        }
+      ]
+      name "front right led"
+      color [
+        1 0.85 0.2
+      ]
+    }
+    LED {
+      translation -0.105 0.055 0.033
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.4 0.1 0.1
+            roughness 1
+            metalness 0
+          }
+          geometry USE LED_SHAPE
+        }
+      ]
+      name "rear left led"
+      color [
+        1 0.15 0.1
+      ]
+    }
+    LED {
+      translation -0.105 -0.055 0.033
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.4 0.1 0.1
+            roughness 1
+            metalness 0
+          }
+          geometry USE LED_SHAPE
+        }
+      ]
+      name "rear right led"
+      color [
+        1 0.15 0.1
+      ]
+    }
+  ]
+  name "ESP32 CAR"
+  boundingObject USE CHASSIS
+  physics Physics {
+    density -1
+    mass 0.45
+  }
+  controller "esp32_car"
+  supervisor TRUE
+  linearVelocity 4.641945062171122e-16 4.7576090723873295e-17 -3.089316242435218e-17
+  angularVelocity -3.6156848598509893e-16 -1.7092935196383783e-16 -3.2211721238109845e-15
+}

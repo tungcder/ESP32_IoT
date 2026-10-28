@@ -1,0 +1,69 @@
+<style>
+body { padding: 0 400px 55px 0; box-sizing: border-box; }
+.footer { width: calc(100% - 400px); }
+#sim-panel { position: fixed; right: 18px; top: 18px; bottom: 18px;
+  width: 350px; padding: 16px; border: 1px solid #344655; border-radius: 18px;
+  background: #101923; text-align: left; display: flex; flex-direction: column; gap: 12px; }
+#sim-panel h2 { margin: 0; font-size: 19px; }
+#sim-panel p { margin: 0; color: #b6c6d2; font-size: 13px; line-height: 1.5; }
+#sim-values { white-space: pre-line; color: #80efbb; line-height: 1.6; font-size: 14px; }
+#sim-lights { display: flex; gap: 12px; }
+#sim-lights span { width: 16px; height: 16px; border-radius: 50%; background: #33404a; }
+#sim-lights span.on { background: #ffdf6b; box-shadow: 0 0 12px #ffdf6b80; }
+#sim-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+#sim-actions button { background: #263846; color: white; border: 1px solid #486171;
+  padding: 9px; border-radius: 8px; cursor: pointer; }
+#sim-log { flex: 1; min-height: 80px; overflow: auto; font: 12px/1.7 Consolas, monospace;
+  color: #b9cad8; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media(max-width: 850px) {
+  body { padding: 0 0 40px; }
+  .footer { position: static; width: 100%; margin-top: 20px; }
+  #sim-panel { position: relative; inset: auto; width: auto; margin: 24px 12px;
+    height: 360px; }
+}
+</style>
+<aside id="sim-panel">
+  <h2>WEBOTS · ROBOT 3D</h2>
+  <p>Giữ nút hoặc phím mũi tên để lái. Thả để dừng.<br>Space/Esc: dừng. Chạy Webots ở chế độ Real-time.</p>
+  <div id="sim-values">Đang kết nối...</div>
+  <div id="sim-lights" title="LED trước trái, trước phải, sau trái, sau phải">
+    <span></span><span></span><span></span><span></span>
+  </div>
+  <div id="sim-actions">
+    <button id="sim-timeout">Thử mất lệnh</button>
+    <button id="sim-pause-log">Tạm dừng log</button>
+    <button id="sim-clear-log">Xóa hiển thị</button>
+  </div>
+  <div id="sim-log"></div>
+</aside>
+<script>
+(() => {
+  let paused = false, hiddenThrough = 0, latestId = 0;
+  const values = document.getElementById('sim-values');
+  const log = document.getElementById('sim-log');
+  const pause = document.getElementById('sim-pause-log');
+  pause.onclick = () => { paused = !paused; pause.textContent = paused ? 'Tiếp tục log' : 'Tạm dừng log'; };
+  document.getElementById('sim-clear-log').onclick = () => { hiddenThrough = latestId; log.textContent = ''; };
+  document.getElementById('sim-timeout').onclick = () => window.webotsControl.testTimeout();
+  async function poll() {
+    try {
+      const response = await fetch('/state', {cache: 'no-store', signal: AbortSignal.timeout(2000)});
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const state = await response.json();
+      window.webotsControl.updateState(state);
+      values.textContent = `Lái: ${state.drive_mode} · ${state.movement}\nKhoảng cách: ${state.distance_cm} cm\nGóc cảm biến: ${state.scanner_angle_deg}°\nAUTO: ${state.auto_state}\nThời gian mô phỏng: ${state.sim_time.toFixed(2)} s`;
+      document.getElementById('status').textContent = state.movement;
+      document.getElementById('driveAutoMode').classList.toggle('active', state.drive_mode === 'AUTO');
+      document.getElementById('driveManualMode').classList.toggle('active', state.drive_mode === 'MANUAL');
+      document.querySelectorAll('#sim-lights span').forEach((led, i) => led.classList.toggle('on', state.leds[i]));
+      latestId = state.events.length ? state.events[state.events.length - 1].id : latestId;
+      if (!paused) {
+        log.textContent = state.events.filter(e => e.id > hiddenThrough).map(e => `${e.time} ${e.message}`).join('\n');
+        log.scrollTop = log.scrollHeight;
+      }
+    } catch (_) { values.textContent = 'Mất kết nối Webots. Kiểm tra world và controller ở cổng 8081.'; }
+    setTimeout(poll, 250);
+  }
+  poll();
+})();
+</script>
