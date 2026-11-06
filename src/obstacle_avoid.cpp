@@ -135,6 +135,11 @@ void updateObstacleAvoidance() {
       // Buoc 2: doc cam bien
       int d = readDistanceCm();
       Serial.printf("Front[%d deg]: %d cm\n", FRONT_ANGLE[slot], d);
+      if (d == NO_ECHO) {
+        stopCar();
+        frontAngleSet = false;
+        return;
+      }
       bool blocked = isFrontBlocked(slot, d);
 
       frontAngleSet = false;

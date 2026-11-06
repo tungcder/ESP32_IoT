@@ -17,11 +17,11 @@ void setup() {
   setupUltrasonic();
   setupServoScan();
   setupObstacleAvoidance();
-  setDriveMode(DriveMode::Auto);
+  setDriveMode(DriveMode::Manual);
   resetCommandTimer();
 
   Serial.println();
-  Serial.println("ESP32 robot: Wi-Fi manual + autonomous obstacle avoidance");
+  Serial.println("ESP32 robot: Wi-Fi manual control ready");
   setupWiFiAndServer();
 }
 
