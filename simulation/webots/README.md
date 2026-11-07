@@ -84,8 +84,9 @@ trên máy chủ, chưa có video hoặc streaming 3D sang trình duyệt của 
 
 ## Chức năng
 
-- Dùng giao diện từ `src/web_page.cpp`, giữ nguyên firmware robot thật.
-- Điều khiển tiến/lùi/trái/phải/dừng, chế độ LED AUTO/MANUAL và bật/tắt cả bốn LED.
+- Dùng chung giao diện từ `src/web_page.cpp` với firmware robot thật.
+- **OBSTACLE AUTO** chỉ hiện trạng thái và nhật ký; **WI-FI MANUAL** hiện nút điều khiển và nhật ký.
+- LED trên xe tự hiển thị theo hướng chuyển động; không còn phần điều khiển LED trên web.
 - Có thể giữ phím mũi tên để lái; thả phím, nhấn Space/Esc hoặc rời cửa sổ thì dừng.
   Lệnh chuyển động gửi tuần tự, chỉ giữ lệnh chờ mới nhất; chuyển AUTO không gửi
   thêm lệnh dừng cạnh tranh với lệnh bật AUTO.
@@ -100,15 +101,17 @@ trên máy chủ, chưa có video hoặc streaming 3D sang trình duyệt của 
   Quãng lùi/góc quay dùng thời gian cấu hình chung với firmware, chưa đo bằng
   encoder. Xem [cách hiệu chỉnh](../../docs/AUTO_CALIBRATION.md).
   Servo về 90° trước khi quay và xe tiếp tục tiến sau khi quay. Đổi tab trình
-  duyệt không hủy AUTO; nút STOP vẫn dừng ngay và chuyển về Manual.
+  duyệt không hủy AUTO; chuyển sang Wi-Fi Manual để dừng AUTO.
 - Firmware đọc một mẫu sonar mỗi lần, cách nhau ít nhất 70 ms khi xe tiến.
   Mất Echo được coi là chưa an toàn: xe lùi và quét hướng khác thay vì đứng
   yên mãi. Mô phỏng chưa tái hiện nhiễu Echo thực của HC-SR04.
-- Bảng bên cạnh hiển thị khoảng cách, trạng thái, LED và 40 sự kiện gần nhất.
-  Có nút tạm dừng log, xóa hiển thị và thử mất lệnh.
+- Nhật ký trong giao diện hiển thị trạng thái chuyển động và các bước tránh vật cản
+  ở cả hai mode; nút **Xóa hiển thị** chỉ xóa log trên trình duyệt.
+- Bảng Webots hiển thị khoảng cách, góc cảm biến và bước AUTO.
 - Timeout Manual và khoảng cách an toàn đọc từ `include/config.h`.
   Không nhận lệnh Manual quá 500 ms thì dừng; AUTO tiếp tục theo cảm biến.
-- Đổi sang AUTO đặt lại quá trình quét, sang Manual đưa sonar về trước.
+- Đổi sang AUTO đặt lại quá trình quét, sang Manual đưa sonar về trước. Lệnh
+  lái thủ công gửi khi AUTO đang chạy bị từ chối HTTP 409.
 - Xe ban đầu hướng +X, bên trái là +Y, trục Z hướng lên. Sàn 4,4 × 4,4 m,
   có tường và ba vật cản. Vật cản màu cam nằm phía trước xe.
 
@@ -121,11 +124,12 @@ Kế hoạch YOLOv8 ONNX nằm riêng tại `G:\robot_IOT\ai_object_navigation_p
 
 ```powershell
 python -m unittest discover -s simulation/webots/tests -v
-node --test simulation/webots/tests/test_controls.js
+node simulation/webots/tests/test_controls.js
 ```
 
-Thử trên Webots: giữ tiến, thả để dừng, kiểm tra các hướng và LED; bấm **Thử mất
-lệnh** để xe tự dừng; chọn AUTO để quan sát quá trình quét tránh vật cản.
+Thử trên Webots: giữ tiến, thả để dừng, kiểm tra các hướng và LED; chọn AUTO
+để quan sát quá trình quét tránh vật cản và nhật ký. Trong AUTO, bàn phím và
+nút dừng thủ công không gửi lệnh; chuyển về Manual để điều khiển.
 Chạy Real-time để thời gian thực của nút web phù hợp với chuyển động mô phỏng.
 Khi Pause, xe không chuyển động dù vẫn có thể nhận HTTP; Resume để tiếp tục.
 Nếu cổng 8081 bị chiếm, đóng bản controller cũ rồi reset world.

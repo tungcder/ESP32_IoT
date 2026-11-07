@@ -2,6 +2,7 @@
 #include "config.h"
 #include "motor_control.h"
 #include "led_control.h"
+#include "robot_status.h"
 
 namespace {
   bool moving = false;
@@ -48,26 +49,31 @@ void setupMotors() {
 void stopCar() {
   setMotorPins(LOW, LOW, LOW, LOW);
   moving = false;
+  setRobotMovement(RobotMovement::Stopped);
   showMovementLeds(LedDirection::Stop);
 }
 void moveForward() {
   setMotorPins(HIGH, LOW, HIGH, LOW);
   moving = true;
+  setRobotMovement(RobotMovement::Forward);
   showMovementLeds(LedDirection::Forward);
 }
 void moveBackward() {
   setMotorPins(LOW, HIGH, LOW, HIGH);
   moving = true;
+  setRobotMovement(RobotMovement::Backward);
   showMovementLeds(LedDirection::Backward);
 }
 void turnRight() {
   setMotorPins(LOW, HIGH, HIGH, LOW);
   moving = true;
+  setRobotMovement(RobotMovement::Right);
   showMovementLeds(LedDirection::Right);
 }
 void turnLeft() {
   setMotorPins(HIGH, LOW, LOW, HIGH);
   moving = true;
+  setRobotMovement(RobotMovement::Left);
   showMovementLeds(LedDirection::Left);
 }
 bool isCarMoving() { return moving; }

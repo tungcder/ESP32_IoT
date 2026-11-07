@@ -29,8 +29,8 @@ namespace Config {
   constexpr uint8_t LED_REAR_RIGHT  = 23;
 
   // Connect to the same 2.4 GHz Wi-Fi network as the laptop.
-  constexpr char WIFI_SSID[] = "hung";
-  constexpr char WIFI_PASSWORD[] = "12345678";
+  constexpr char WIFI_SSID[] = "Hung Dong 2006";
+  constexpr char WIFI_PASSWORD[] = "44448888";
   constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;
 
   constexpr unsigned long COMMAND_TIMEOUT_MS = 500;

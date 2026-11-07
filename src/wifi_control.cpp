@@ -10,6 +10,8 @@
 #include "obstacle_avoid.h"
 #include "web_page.h"
 #include "wifi_control.h"
+#include "robot_status.h"
+#include "servo_scan.h"
 
 namespace {
   WebServer server(80);
@@ -76,35 +78,35 @@ namespace {
   }
 
   void handleForward() {
-    setDriveMode(DriveMode::Manual);
+    if (getDriveMode() != DriveMode::Manual) { server.send(409, "text/plain", "AUTO mode active"); return; }
     moveForward();
     resetCommandTimer();
     server.send(200, "text/plain", "FORWARD");
   }
 
   void handleBackward() {
-    setDriveMode(DriveMode::Manual);
+    if (getDriveMode() != DriveMode::Manual) { server.send(409, "text/plain", "AUTO mode active"); return; }
     moveBackward();
     resetCommandTimer();
     server.send(200, "text/plain", "BACKWARD");
   }
 
   void handleLeft() {
-    setDriveMode(DriveMode::Manual);
+    if (getDriveMode() != DriveMode::Manual) { server.send(409, "text/plain", "AUTO mode active"); return; }
     turnLeft();
     resetCommandTimer();
     server.send(200, "text/plain", "LEFT");
   }
 
   void handleRight() {
-    setDriveMode(DriveMode::Manual);
+    if (getDriveMode() != DriveMode::Manual) { server.send(409, "text/plain", "AUTO mode active"); return; }
     turnRight();
     resetCommandTimer();
     server.send(200, "text/plain", "RIGHT");
   }
 
   void handleStop() {
-    setDriveMode(DriveMode::Manual);
+    if (getDriveMode() != DriveMode::Manual) { server.send(409, "text/plain", "AUTO mode active"); return; }
     stopCar();
     resetCommandTimer();
     server.send(200, "text/plain", "STOP");
@@ -114,6 +116,7 @@ namespace {
     stopCar();
     setupObstacleAvoidance();
     setDriveMode(DriveMode::Auto);
+    recordRobotEvent("Obstacle Auto selected");
     resetCommandTimer();
     server.send(200, "text/plain", "DRIVE AUTO");
   }
@@ -121,28 +124,15 @@ namespace {
   void handleDriveManual() {
     stopCar();
     setDriveMode(DriveMode::Manual);
+    setServoAngle(90);
+    recordRobotEvent("Wi-Fi Manual selected");
     resetCommandTimer();
     server.send(200, "text/plain", "DRIVE MANUAL");
   }
 
-  void handleLedAuto() {
-    setLedMode(LedMode::Auto);
-    server.send(200, "text/plain", "AUTO");
-  }
-
-  void handleLedManual() {
-    setLedMode(LedMode::Manual);
-    server.send(200, "text/plain", "MANUAL");
-  }
-
-  void handleLedOn() {
-    setAllLeds(true);
-    server.send(200, "text/plain", "LED ON");
-  }
-
-  void handleLedOff() {
-    setAllLeds(false);
-    server.send(200, "text/plain", "LED OFF");
+  void handleStatus() {
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json; charset=UTF-8", robotStatusJson());
   }
 }
 
@@ -185,11 +175,7 @@ void setupWiFiAndServer() {
   server.on("/stop", HTTP_GET, handleStop);
   server.on("/driveauto", HTTP_GET, handleDriveAuto);
   server.on("/drivemanual", HTTP_GET, handleDriveManual);
-
-  server.on("/ledauto", HTTP_GET, handleLedAuto);
-  server.on("/ledmanual", HTTP_GET, handleLedManual);
-  server.on("/ledon", HTTP_GET, handleLedOn);
-  server.on("/ledoff", HTTP_GET, handleLedOff);
+  server.on("/status", HTTP_GET, handleStatus);
 
   server.begin();
   Serial.println("Web server started on port 80; accessible when Wi-Fi is connected.");

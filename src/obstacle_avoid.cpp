@@ -5,6 +5,7 @@
 #include "ultrasonic.h"
 #include "servo_scan.h"
 #include "obstacle_avoid.h"
+#include "robot_status.h"
 
 namespace {
   enum class State : uint8_t {
@@ -55,6 +56,9 @@ namespace {
     reverseDurationMs = distanceCm * Config::AUTO_REVERSE_MS_PER_CM;
     Serial.printf("Reverse target: %d cm (timed estimate: %lu ms)\n",
                   distanceCm, reverseDurationMs);
+    char message[72];
+    snprintf(message, sizeof(message), "Obstacle ahead; reverse target %d cm", distanceCm);
+    recordRobotEvent(message);
     moveBackward();
     enterState(State::Reverse);
   }
@@ -63,6 +67,7 @@ namespace {
     // Center the sensor during the turn, so it is ready when driving resumes.
     setServoAngle(90);
     turnDurationMs = right ? Config::AUTO_RIGHT_90_MS : Config::AUTO_LEFT_90_MS;
+    recordRobotEvent(right ? "Right clear; turning right" : "Left clear; turning left");
     if (right) turnRight();
     else turnLeft();
     enterState(State::Turn);
@@ -100,6 +105,7 @@ void updateObstacleAvoidance() {
     case State::Reverse:
       if (elapsed(reverseDurationMs)) {
         stopCar();
+        recordRobotEvent("Reversing done; scanning left");
         setServoAngle(45);
         enterState(State::ScanLeft45);
       }
@@ -110,6 +116,9 @@ void updateObstacleAvoidance() {
         const int distance = readDistanceCm();
         left45Clear = isClear(distance);
         Serial.printf("Left[45 deg]: %d cm\n", distance);
+        char message[72];
+        snprintf(message, sizeof(message), "Left 45 deg: %d cm", distance);
+        recordRobotEvent(message);
         setServoAngle(0);
         enterState(State::ScanLeft0);
       }
@@ -119,6 +128,9 @@ void updateObstacleAvoidance() {
       if (elapsed(SERVO_SETTLE_MS)) {
         const int distance = readDistanceCm();
         Serial.printf("Left[0 deg]: %d cm\n", distance);
+        char message[72];
+        snprintf(message, sizeof(message), "Left 0 deg: %d cm", distance);
+        recordRobotEvent(message);
         if (left45Clear && isClear(distance)) {
           Serial.println("Left clear; turning left.");
           startTurn(false);
@@ -134,6 +146,9 @@ void updateObstacleAvoidance() {
         const int distance = readDistanceCm();
         right135Clear = isClear(distance);
         Serial.printf("Right[135 deg]: %d cm\n", distance);
+        char message[72];
+        snprintf(message, sizeof(message), "Right 135 deg: %d cm", distance);
+        recordRobotEvent(message);
         setServoAngle(180);
         enterState(State::ScanRight180);
       }
@@ -143,12 +158,16 @@ void updateObstacleAvoidance() {
       if (elapsed(SERVO_SETTLE_MS)) {
         const int distance = readDistanceCm();
         Serial.printf("Right[180 deg]: %d cm\n", distance);
+        char message[72];
+        snprintf(message, sizeof(message), "Right 180 deg: %d cm", distance);
+        recordRobotEvent(message);
         const bool rightClear = right135Clear && isClear(distance);
         if (rightClear) {
           Serial.println("Right clear; turning right 90 degrees (timed estimate).");
           startTurn(true);
         } else {
           Serial.println("Both sides blocked; reverse 30 cm and scan again.");
+          recordRobotEvent("Both sides blocked; scanning again");
           startReverse(Config::AUTO_RETRY_REVERSE_CM);
         }
       }
@@ -156,6 +175,7 @@ void updateObstacleAvoidance() {
 
     case State::Turn:
       if (elapsed(turnDurationMs)) {
+        recordRobotEvent("Turn complete; checking front");
         moveForward();
         lastFrontCheck = millis() - FRONT_INTERVAL_MS;
         enterState(State::CheckFront);

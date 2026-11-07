@@ -8,7 +8,7 @@ Thông số nằm trong `include/config.h`. Firmware và Webots đọc cùng c�
 4. Nếu trái bị chặn, quét 135° và 180° (bên phải). Cả hai góc phải >40 cm:
    rẽ phải mục tiêu 90° rồi tiến tiếp.
 5. Nếu cả hai bên bị chặn: lùi thêm mục tiêu 30 cm, rồi quét lại từ trái.
-   Chu trình tiếp tục cho tới khi có hướng đi hoặc người dùng ra lệnh STOP/Manual.
+   Chu trình tiếp tục cho tới khi có hướng đi hoặc người dùng chuyển sang Wi-Fi Manual.
 
 Xe vẫn dừng ngắn để servo ổn định và đo. AUTO không có thời hạn tự kết thúc.
 Timeout 500 ms chỉ áp dụng điều khiển tay. Mất Echo được coi là hướng chưa rõ,

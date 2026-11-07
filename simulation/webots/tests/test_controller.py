@@ -36,7 +36,7 @@ class ControllerTests(unittest.TestCase):
         snapshot = self.state.snapshot()
         self.assertEqual(snapshot["movement"], "STOPPED")
         self.assertEqual(snapshot["leds"], [False] * 4)
-        self.assertIn("TIMEOUT", snapshot["events"][-1]["message"])
+        self.assertIn("timeout", snapshot["events"][-1]["message"])
 
     def test_commands_refresh_watchdog(self):
         self.state.command("/left")
@@ -45,15 +45,16 @@ class ControllerTests(unittest.TestCase):
         self.now += 0.4
         self.assertEqual(self.state.snapshot()["movement"], "LEFT")
 
-    def test_stop_overrides_auto_and_centers_scanner(self):
+    def test_manual_stop_cannot_cancel_auto(self):
         self.state.command("/driveauto")
         self.state.update_simulation(0, 10)
         self.advance_until(lambda: self.state.pilot.state == "ScanLeft45", 10)
         self.assertEqual(self.state.pilot.angle, 45)
-        self.state.command("/stop")
+        self.assertIsNone(self.state.command("/stop"))
         movement, angle, _ = self.state.update_simulation(self.state.sim_time + 0.016, 10)
-        self.assertEqual((movement, angle), ("STOPPED", 90))
-        self.assertEqual(self.state.drive_mode, "MANUAL")
+        self.assertEqual(self.state.drive_mode, "AUTO")
+        self.assertEqual(self.state.pilot.state, "ScanLeft45")
+        self.assertEqual(angle, 45)
 
     def test_auto_ignores_manual_watchdog_and_reentry_resets(self):
         self.state.command("/driveauto")
@@ -68,12 +69,11 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.state.pilot.state, "CheckFront")
         self.assertEqual(self.state.movement, "FORWARD")
 
-    def test_manual_leds_remain_on_after_stop(self):
-        self.state.command("/ledon")
+    def test_leds_follow_movement_without_led_controls(self):
+        self.assertFalse(self.state.command("/ledon"))
         self.state.command("/forward")
+        self.assertEqual(self.state.snapshot()["leds"], [True, True, False, False])
         self.state.command("/stop")
-        self.assertEqual(self.state.snapshot()["leds"], [True] * 4)
-        self.state.command("/ledoff")
         self.assertEqual(self.state.snapshot()["leds"], [False] * 4)
 
     def test_no_echo_front_reverses_instead_of_stalling(self):
@@ -148,7 +148,7 @@ class ControllerTests(unittest.TestCase):
                 self.assertAlmostEqual(pilot.reverse_duration, 30 * 50 / 1000)
         self.assertGreaterEqual(retries, 3)
 
-    def test_stop_cancels_each_auto_phase_and_does_not_resume(self):
+    def test_manual_mode_cancels_each_auto_phase_and_does_not_resume(self):
         for phase in ("CheckFront", "Reverse", "ScanLeft45", "ScanLeft0",
                       "ScanRight135", "ScanRight180", "Turn"):
             with self.subTest(phase=phase):
@@ -156,7 +156,7 @@ class ControllerTests(unittest.TestCase):
                 state.command("/driveauto")
                 state.update_simulation(0, 100)
                 state.pilot.state = phase
-                state.command("/stop")
+                state.command("/drivemanual")
                 for now in (1, 5, 20):
                     movement, angle, _ = state.update_simulation(now, 100)
                     self.assertEqual((movement, angle), ("STOPPED", 90))
@@ -208,11 +208,23 @@ class ControllerTests(unittest.TestCase):
             self.assertIn('id="forward"', page)
             self.assertIn('id="sim-panel"', page)
             self.assertIn("setPointerCapture", page)
-            self.assertNotIn("let moveInterval = null", page)
+            self.assertIn('id="autoPanel"', page)
+            self.assertIn('id="manualPanel" hidden', page)
+            self.assertNotIn("LED LIGHT CONTROL", page)
             with urlopen(root + "/forward", timeout=2) as response:
                 self.assertEqual(response.status, 200)
             with urlopen(root + "/state", timeout=2) as response:
                 self.assertEqual(json.load(response)["movement"], "FORWARD")
+            with urlopen(root + "/driveauto", timeout=2) as response:
+                self.assertEqual(response.status, 200)
+            with self.assertRaises(HTTPError) as conflict:
+                urlopen(root + "/forward", timeout=2)
+            self.assertEqual(conflict.exception.code, 409)
+            conflict.exception.close()
+            with urlopen(root + "/status", timeout=2) as response:
+                state = json.load(response)
+            self.assertEqual(state["drive_mode"], "AUTO")
+            self.assertTrue(any(event["mode"] == "AUTO" for event in state["events"]))
             with self.assertRaises(HTTPError) as error:
                 urlopen(root + "/unknown", timeout=2)
             self.assertEqual(error.exception.code, 404)

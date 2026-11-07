@@ -44,13 +44,9 @@ def controller_page():
     if not match:
         raise ValueError("Cannot extract webpage from src/web_page.cpp")
     page = match.group(1)
-    # The source has a literal C++ \\n immediately after </html>.
     page = page[:page.lower().rfind("</html>") + len("</html>")]
-    # Keep the firmware layout, but use simulation controls with ordered requests.
-    page = re.sub(r"<script\b[^>]*>.*?</script>", "", page, flags=re.S | re.I)
-    controls = Path(__file__).with_name("controls.js").read_text(encoding="utf-8")
     panel = Path(__file__).with_name("panel.html").read_text(encoding="utf-8")
-    return page.replace("</body>", "<script>\n" + controls + "\n</script>\n" + panel + "\n</body>")
+    return page.replace("</body>", panel + "\n</body>")
 
 
 def server_port():
@@ -71,8 +67,6 @@ class BridgeState:
         self.timeout = config_integer("COMMAND_TIMEOUT_MS") / 1000
         self.safe_distance = config_integer("SAFE_DISTANCE_CM")
         self.drive_mode = "MANUAL"
-        self.led_mode = "AUTO"
-        self.manual_leds = False
         self.movement = "STOPPED"
         self.leds = [False] * 4
         self.last_command = clock()
@@ -90,61 +84,62 @@ class BridgeState:
         self.previous_mode = "MANUAL"
         self.events = deque(maxlen=40)
         self.event_id = 0
-        self.log("WEBOTS ready")
+        self.log("Webots ready")
 
     def log(self, message):
         self.event_id += 1
-        self.events.append({"id": self.event_id, "time": time.strftime("%H:%M:%S"),
-                            "message": message})
+        self.events.append({"id": self.event_id, "ms": int(self.clock() * 1000),
+                            "mode": self.drive_mode, "message": message})
 
     def update_leds(self):
-        if self.led_mode == "MANUAL":
-            self.leds = [self.manual_leds] * 4
-        else:
-            self.leds = list({
-                "STOPPED": (False, False, False, False),
-                "FORWARD": (True, True, False, False),
-                "BACKWARD": (False, False, True, True),
-                "LEFT": (True, False, True, False),
-                "RIGHT": (False, True, False, True),
-            }[self.movement])
+        self.leds = list({
+            "STOPPED": (False, False, False, False),
+            "FORWARD": (True, True, False, False),
+            "BACKWARD": (False, False, True, True),
+            "LEFT": (True, False, True, False),
+            "RIGHT": (False, True, False, True),
+        }[self.movement])
 
     def tick(self):
         if (self.drive_mode == "MANUAL" and self.movement != "STOPPED"
                 and self.clock() - self.last_command > self.timeout):
             self.movement = "STOPPED"
             self.update_leds()
-            self.log("TIMEOUT: stopping robot")
+            self.log("Manual command timeout")
 
     def command(self, path):
         movements = {"/forward": "FORWARD", "/backward": "BACKWARD",
                      "/left": "LEFT", "/right": "RIGHT", "/stop": "STOPPED"}
         with self.lock:
             if path in movements:
-                self.drive_mode = "MANUAL"
-                self.movement = movements[path]
+                if self.drive_mode != "MANUAL":
+                    return None
+                movement = movements[path]
+                if self.movement != movement:
+                    self.movement = movement
+                    self.log("Movement: " + movement)
                 self.last_command = self.clock()
             elif path in ("/driveauto", "/drivemanual"):
+                if self.movement != "STOPPED":
+                    self.movement = "STOPPED"
+                    self.log("Movement: STOPPED")
                 self.drive_mode = "AUTO" if path == "/driveauto" else "MANUAL"
                 self.movement = "STOPPED"
                 self.reset_requested = True
                 self.last_command = self.clock()
-            elif path in ("/ledauto", "/ledmanual"):
-                self.led_mode = "AUTO" if path == "/ledauto" else "MANUAL"
-            elif path in ("/ledon", "/ledoff"):
-                self.led_mode = "MANUAL"
-                self.manual_leds = path == "/ledon"
+                self.log("Obstacle Auto selected" if self.drive_mode == "AUTO"
+                         else "Wi-Fi Manual selected")
             else:
                 return False
             self.update_leds()
-            self.log(path)
             return True
 
     def snapshot(self):
         with self.lock:
             self.tick()
             return {"backend": "webots", "drive_mode": self.drive_mode,
-                    "led_mode": self.led_mode, "movement": self.movement,
+                    "uptime_ms": int(self.clock() * 1000),
+                    "movement": self.movement,
                     "leds": list(self.leds), "distance_cm": round(self.distance_cm, 1),
                     "sim_time": round(self.sim_time, 3), "pose": self.pose,
                     "auto_state": self.pilot.state, "events": list(self.events),
@@ -164,9 +159,12 @@ class BridgeState:
                 self.pilot.reset(now)
             if self.drive_mode == "AUTO":
                 old_state = self.pilot.state
+                old_movement = self.movement
                 self.movement, angle = self.pilot.update(now, self.distance_cm)
                 if old_state != self.pilot.state:
                     self.log("AUTO: " + self.pilot.state)
+                if old_movement != self.movement:
+                    self.log("Movement: " + self.movement)
             self.previous_mode = self.drive_mode
             self.reset_requested = False
             self.update_leds()
@@ -201,8 +199,8 @@ class Handler(BaseHTTPRequestHandler):
             content_type, status = "application/json; charset=utf-8", 200
         else:
             ok = self.server.state.command(path)
-            body = (path if ok else "Not found").encode("utf-8")
-            content_type, status = "text/plain; charset=utf-8", 200 if ok else 404
+            body = (path if ok else "AUTO mode active" if ok is None else "Not found").encode("utf-8")
+            content_type, status = "text/plain; charset=utf-8", 200 if ok else 409 if ok is None else 404
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
