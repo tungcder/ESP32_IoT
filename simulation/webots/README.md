@@ -92,13 +92,18 @@ trên máy chủ, chưa có video hoặc streaming 3D sang trình duyệt của 
 - Server xử lý nhiều kết nối đồng thời để tab mở sẵn hoặc máy khác không chặn
   lệnh điều khiển. Điều này không cấp quyền lái riêng cho từng người.
 - **OBSTACLE AUTO** chạy logic Python tương ứng `src/obstacle_avoid.cpp`:
-  quét phía trước 90° → 60° → 90° → 120° trong lúc tiến; lùi khi gần vật cản,
-  quét phải/trái rồi chọn hướng quay. Hai bên bị chặn thì quay phải 900 ms;
-  gặp vật cản liên tiếp thì tăng thời gian quay, tối đa 850 ms.
-- Sonar được lấy ba mẫu cách nhau tối thiểu 8 ms rồi lấy trung vị. Bản mô phỏng
-  giữ giá trị gần trong 1 giây khi mất Echo, theo chính sách trong code C++ mới.
-  Việc lấy mẫu không chặn vòng lặp Webots; nhịp mô phỏng 16 ms làm thời gian lấy
-  mẫu dài hơn các khoảng delay 8 ms trên firmware. Chưa tái hiện nhiễu Echo thực.
+  xe tiến với mức điều khiển 50%, sonar giữ 90°. Khoảng cách phía trước <=40 cm
+  thì xe lùi mục tiêu 20 cm, dừng ngắn để đo bên trái tại 45° rồi 0°.
+  Cả hai góc trái >40 cm thì rẽ trái mục tiêu 90°. Nếu trái bị chặn, đo bên phải
+  tại 135° rồi 180°; phải trống thì rẽ phải mục tiêu 90°. Nếu cả hai phía bị chặn,
+  lùi thêm mục tiêu 30 cm và quét lại từ trái. Không quay vào hướng đã bị chặn.
+  Quãng lùi/góc quay dùng thời gian cấu hình chung với firmware, chưa đo bằng
+  encoder. Xem [cách hiệu chỉnh](../../docs/AUTO_CALIBRATION.md).
+  Servo về 90° trước khi quay và xe tiếp tục tiến sau khi quay. Đổi tab trình
+  duyệt không hủy AUTO; nút STOP vẫn dừng ngay và chuyển về Manual.
+- Firmware đọc một mẫu sonar mỗi lần, cách nhau ít nhất 70 ms khi xe tiến.
+  Mất Echo được coi là chưa an toàn: xe lùi và quét hướng khác thay vì đứng
+  yên mãi. Mô phỏng chưa tái hiện nhiễu Echo thực của HC-SR04.
 - Bảng bên cạnh hiển thị khoảng cách, trạng thái, LED và 40 sự kiện gần nhất.
   Có nút tạm dừng log, xóa hiển thị và thử mất lệnh.
 - Timeout Manual và khoảng cách an toàn đọc từ `include/config.h`.

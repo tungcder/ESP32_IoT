@@ -561,14 +561,14 @@ const driveAutoButton = document.getElementById("driveAutoMode");
 const driveManualButton = document.getElementById("driveManualMode");
 
 driveAutoButton.addEventListener("click", function() {
-  stopMove();
+  stopMove(false);
   driveAutoButton.classList.add("active");
   driveManualButton.classList.remove("active");
   fetch("/driveauto").catch(() => {});
 });
 
 driveManualButton.addEventListener("click", function() {
-  stopMove();
+  stopMove(false);
   driveManualButton.classList.add("active");
   driveAutoButton.classList.remove("active");
   fetch("/drivemanual").catch(() => {});
@@ -639,7 +639,9 @@ function startMove(direction) {
 // STOP MOVEMENT
 // ======================================================
 
-function stopMove() {
+function stopMove(sendStop = true, forceStop = false) {
+
+  const wasMoving = currentDirection !== null;
 
   if (moveInterval !== null) {
 
@@ -668,9 +670,13 @@ function stopMove() {
     "STOPPED";
 
 
-  fetch("/stop")
+  if (sendStop && (wasMoving || forceStop)) {
 
-    .catch(() => {});
+    fetch("/stop")
+
+      .catch(() => {});
+
+  }
 
 }
 
@@ -934,7 +940,7 @@ document
 
     function() {
 
-      stopMove();
+      stopMove(true, true);
 
     }
 

@@ -18,8 +18,8 @@ WorldInfo {
   ]
 }
 Viewpoint {
-  orientation 0.15796929571029392 -0.8371559843522498 -0.5236559552568935 5.591460809378537
-  position -6.116288206805968 -4.149481767767224 6.62778452481162
+  orientation 0.4119526187479269 -0.6696486118223183 -0.6179528918867256 4.71689068918991
+  position 0.6610328944449531 -3.2787546544933814 8.412933404309543
 }
 Background {
   skyColor [
@@ -150,8 +150,8 @@ Solid {
   boundingObject USE SIDE_OBSTACLE
 }
 DEF CAR Robot {
-  translation 1.855490910989925 -1.27425330823626 0.06492598961350891
-  rotation 3.92677482941576e-05 -5.091603392524981e-05 -0.9999999979328008 -1.3138953434615885
+  translation 1.1481742992933803 1.6068904163495867 0.06492598961350893
+  rotation -3.9267748375138093e-05 -2.4223002700762745e-06 0.9999999992260883 -3.018375261017655
   children [
     Shape {
       appearance PBRAppearance {
@@ -165,19 +165,20 @@ DEF CAR Robot {
     }
     HingeJoint {
       jointParameters HingeJointParameters {
-        position 341.09888011658273
+        position 450.1610949609051
         axis 0 1 0
         anchor 0 0.1 -0.025
       }
       device [
         RotationalMotor {
           name "left wheel motor"
+          maxVelocity 10
           maxTorque 2
         }
       ]
       endPoint Solid {
         translation 0 0.1 -0.025
-        rotation 0.4867240296816396 -0.6176972231337142 -0.6176972231306898 -2.235651579702907
+        rotation -0.32816976994298147 -0.667946330965273 -0.6679463309620024 2.5074003117027033
         children [
           Shape {
             appearance DEF RUBBER PBRAppearance {
@@ -199,25 +200,26 @@ DEF CAR Robot {
           density -1
           mass 0.04
         }
-        linearVelocity 5.581027212566036e-15 -1.6895024008991751e-15 -1.1250835912486022e-16
-        angularVelocity -1.290629856987195e-15 -5.092072691351078e-15 -9.566563981869353e-17
+        linearVelocity 1.4174799256067511e-15 -5.6953657322439686e-15 2.8856057510380985e-16
+        angularVelocity -1.059036087276531e-16 2.4792445862792464e-16 -1.8565835562712928e-15
       }
     }
     HingeJoint {
       jointParameters HingeJointParameters {
-        position 386.19267073314325
+        position 507.4076991149379
         axis 0 1 0
         anchor 0 -0.1 -0.025
       }
       device [
         RotationalMotor {
           name "right wheel motor"
+          maxVelocity 10
           maxTorque 2
         }
       ]
       endPoint Solid {
         translation 0 -0.1 -0.025
-        rotation 0.07900383645087 -0.7048965859723361 -0.7048965859688845 3.2992728115959924
+        rotation 0.592931710865514 0.569399677842054 0.5693996778392657 4.212004690410162
         children [
           Shape {
             appearance USE RUBBER
@@ -231,8 +233,8 @@ DEF CAR Robot {
           density -1
           mass 0.04
         }
-        linearVelocity -6.4494416826126385e-15 1.7675355231720284e-15 3.39231129981115e-17
-        angularVelocity -7.616181192295787e-16 -4.268644829170349e-15 2.575620391756405e-16
+        linearVelocity -2.713932684952828e-16 6.255639211869842e-15 2.000851471577295e-16
+        angularVelocity 2.391765213209583e-15 5.988984317529301e-16 -4.638170279586787e-16
       }
     }
     Solid {
@@ -271,7 +273,7 @@ DEF CAR Robot {
     }
     HingeJoint {
       jointParameters HingeJointParameters {
-        position 1.5990952415515123e-19
+        position 1.7269647733616568e-18
         axis 0 0 1
         anchor 0.1 0 0.045
       }
@@ -279,14 +281,14 @@ DEF CAR Robot {
         RotationalMotor {
           name "scanner motor"
           maxVelocity 8
-          minPosition -1.4
-          maxPosition 1.4
+          minPosition -1.571
+          maxPosition 1.571
           maxTorque 0.5
         }
       ]
       endPoint Solid {
         translation 0.1 0 0.045
-        rotation -0.05121475197306363 0.9986876634747408 -1.923631008603652e-06 0
+        rotation -0.28109061262291596 0.07676912801238316 -0.9566057539443781 4.0620970686399046e-16
         children [
           Shape {
             appearance PBRAppearance {
@@ -316,8 +318,8 @@ DEF CAR Robot {
           density -1
           mass 0.02
         }
-        linearVelocity 3.533399107336996e-15 -2.797276686355152e-15 2.5784328452437566e-16
-        angularVelocity -5.889933330236606e-16 -5.758527957940864e-16 -3.220422692917809e-15
+        linearVelocity -3.870792180266964e-15 5.2998522913200884e-15 -2.2148501310185303e-17
+        angularVelocity -7.01631008395876e-16 4.0509967704966236e-16 -2.214623926556022e-15
       }
     }
     LED {
@@ -399,6 +401,6 @@ DEF CAR Robot {
   }
   controller "esp32_car"
   supervisor TRUE
-  linearVelocity 4.641945062171122e-16 4.7576090723873295e-17 -3.089316242435218e-17
-  angularVelocity -3.6156848598509893e-16 -1.7092935196383783e-16 -3.2211721238109845e-15
+  linearVelocity -1.0816254800538914e-15 -5.067578086894714e-16 -2.1625213697046528e-16
+  angularVelocity -1.244342164362237e-15 7.193007012714068e-16 -2.2078139577130587e-15
 }

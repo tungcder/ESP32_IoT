@@ -15,12 +15,16 @@ from autopilot import AutoPilot
 
 PROJECT = Path(__file__).resolve().parents[4]
 PORT = 8081
-WHEEL_SPEED = 5.0
 WHEEL_DIRECTIONS = {
     "STOPPED": (0, 0), "FORWARD": (1, 1), "BACKWARD": (-1, -1),
     "LEFT": (-1, 1), "RIGHT": (1, -1),
 }
 LED_NAMES = ("front left led", "front right led", "rear left led", "rear right led")
+
+
+def scanner_position_radians(angle):
+    # On the real robot 0 degrees looks left and 180 degrees looks right.
+    return math.radians(90 - angle)
 
 
 def config_integer(name):
@@ -29,6 +33,9 @@ def config_integer(name):
     if not match:
         raise ValueError(f"Cannot read {name} from include/config.h")
     return int(match.group(1))
+
+
+WHEEL_SPEED = 10.0 * config_integer("MOTOR_SPEED_PERCENT") / 100
 
 
 def controller_page():
@@ -72,7 +79,13 @@ class BridgeState:
         self.distance_cm = 200.0
         self.sim_time = 0.0
         self.pose = None
-        self.pilot = AutoPilot(self.safe_distance)
+        self.pilot = AutoPilot(
+            self.safe_distance,
+            reverse_cm=config_integer("AUTO_REVERSE_CM"),
+            retry_reverse_cm=config_integer("AUTO_RETRY_REVERSE_CM"),
+            reverse_ms_per_cm=config_integer("AUTO_REVERSE_MS_PER_CM"),
+            left_90_ms=config_integer("AUTO_LEFT_90_MS"),
+            right_90_ms=config_integer("AUTO_RIGHT_90_MS"))
         self.reset_requested = False
         self.previous_mode = "MANUAL"
         self.events = deque(maxlen=40)
@@ -135,7 +148,7 @@ class BridgeState:
                     "leds": list(self.leds), "distance_cm": round(self.distance_cm, 1),
                     "sim_time": round(self.sim_time, 3), "pose": self.pose,
                     "auto_state": self.pilot.state, "events": list(self.events),
-                    "avoidance_algorithm": "front_fan_scan",
+                    "avoidance_algorithm": "center_then_left_right",
                     "scanner_angle_deg": self.pilot.angle if self.drive_mode == "AUTO" else 90,
                     "turn_duration_ms": round(self.pilot.turn_duration * 1000),
                     "timeout_ms": int(self.timeout * 1000)}
@@ -244,7 +257,7 @@ def main():
             l_speed, r_speed = WHEEL_DIRECTIONS[movement]
             left.setVelocity(l_speed * WHEEL_SPEED)
             right.setVelocity(r_speed * WHEEL_SPEED)
-            scanner.setPosition(math.radians(angle - 90))
+            scanner.setPosition(scanner_position_radians(angle))
             for led, on in zip(leds, lights):
                 led.set(on)
     finally:

@@ -53,6 +53,21 @@ test('mode button sends AUTO once without a competing stop', async () => {
   assert.equal(h.calls.length, 1);
 });
 
+test('AUTO is not cancelled when switching tabs, explicit stop still works', async () => {
+  const h = harness();
+  h.element('driveAutoMode').fire('click');
+  h.calls[0].resolve();
+  await flush();
+  h.window.fire('blur');
+  h.document.hidden = true;
+  h.document.fire('visibilitychange');
+  assert.deepEqual(h.calls.map(c => c.url), ['/driveauto']);
+  h.element('stop').fire('click');
+  assert.equal(h.calls[1].url, '/stop');
+  h.calls[1].resolve();
+  await flush();
+});
+
 test('releasing replaces queued heartbeats with stop', async () => {
   const h = harness();
   h.element('forward').fire('pointerdown');

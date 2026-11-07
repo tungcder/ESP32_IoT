@@ -11,8 +11,9 @@ namespace Config {
   constexpr uint8_t MOTOR_IN2 = 26;
   constexpr uint8_t MOTOR_IN3 = 25;
   constexpr uint8_t MOTOR_IN4 = 33;
-  // 8-bit PWM duty: 153/255 is about 60% speed command.
-  constexpr uint8_t MOTOR_SPEED_DUTY = 153;
+  constexpr uint8_t MOTOR_SPEED_PERCENT = 50;
+  // Rounded 8-bit PWM: 128/255, approximately 50%.
+  constexpr uint8_t MOTOR_SPEED_DUTY = (255 * MOTOR_SPEED_PERCENT + 50) / 100;
 
   // HC-SR04
   constexpr uint8_t TRIG_PIN = 16;
@@ -33,6 +34,13 @@ namespace Config {
   constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;
 
   constexpr unsigned long COMMAND_TIMEOUT_MS = 500;
-  constexpr int SAFE_DISTANCE_CM = 25;
+  constexpr int SAFE_DISTANCE_CM = 40;
+  constexpr int AUTO_REVERSE_CM = 20;
+  constexpr int AUTO_RETRY_REVERSE_CM = 30;
+  // Initial estimates at 50% PWM, NOT measured distances/angles.
+  // Calibrate on the real car; changing speed/voltage requires recalibration.
+  constexpr unsigned long AUTO_REVERSE_MS_PER_CM = 50;
+  constexpr unsigned long AUTO_LEFT_90_MS = 780;
+  constexpr unsigned long AUTO_RIGHT_90_MS = 780;
   constexpr int NO_ECHO_DISTANCE_CM = 200;
 }

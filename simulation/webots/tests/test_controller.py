@@ -10,7 +10,8 @@ from urllib.error import HTTPError
 from urllib.request import urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "controllers/esp32_car"))
-from esp32_car import BridgeState, ControllerServer, WHEEL_DIRECTIONS, server_port
+from esp32_car import (BridgeState, ControllerServer, WHEEL_DIRECTIONS,
+                       scanner_position_radians, server_port)
 from autopilot import AutoPilot
 
 
@@ -47,8 +48,8 @@ class ControllerTests(unittest.TestCase):
     def test_stop_overrides_auto_and_centers_scanner(self):
         self.state.command("/driveauto")
         self.state.update_simulation(0, 10)
-        self.advance_until(lambda: self.state.pilot.state == "PointRight", 10)
-        self.assertEqual(self.state.pilot.angle, 10)
+        self.advance_until(lambda: self.state.pilot.state == "ScanLeft45", 10)
+        self.assertEqual(self.state.pilot.angle, 45)
         self.state.command("/stop")
         movement, angle, _ = self.state.update_simulation(self.state.sim_time + 0.016, 10)
         self.assertEqual((movement, angle), ("STOPPED", 90))
@@ -75,64 +76,99 @@ class ControllerTests(unittest.TestCase):
         self.state.command("/ledoff")
         self.assertEqual(self.state.snapshot()["leds"], [False] * 4)
 
-    def test_no_echo_front_without_recent_near_value_matches_new_firmware(self):
+    def test_no_echo_front_reverses_instead_of_stalling(self):
         self.state.command("/driveauto")
         self.state.update_simulation(1, float("nan"))
-        self.advance_until(lambda: self.state.movement == "FORWARD", float("nan"))
+        self.assertEqual(self.state.pilot.state, "Reverse")
+        self.assertEqual(self.state.movement, "BACKWARD")
+        self.advance_until(lambda: self.state.pilot.state == "ScanLeft45", float("nan"))
         self.assertEqual(self.state.distance_cm, 0)
-        self.assertEqual(self.state.movement, "FORWARD")
+        self.assertEqual(self.state.movement, "STOPPED")
 
-    def test_auto_scan_chooses_clear_side_or_u_turn_when_both_near(self):
-        for right, left, expected in ((100, 10, "RIGHT"), (10, 100, "LEFT"),
-                                      (10, 10, "RIGHT"), (0, 0, "RIGHT")):
-            with self.subTest(right=right, left=left):
-                pilot = AutoPilot(25)
+    def test_auto_scans_left_first_then_right_and_turns(self):
+        cases = (
+            (100, 100, 10, 10, "LEFT", 0.78),
+            (10, 100, 100, 100, "RIGHT", 0.78),
+            (100, 10, 100, 100, "RIGHT", 0.78),
+        )
+        for left45, left0, right135, right180, expected, duration in cases:
+            with self.subTest(expected=expected, duration=duration):
+                pilot = AutoPilot(40)
                 pilot.reset(10)
                 for step in range(400):
-                    distance = right if pilot.state == "PointRight" else left if pilot.state == "PointLeft" else 10
+                    distance = {
+                        "ScanLeft45": left45, "ScanLeft0": left0,
+                        "ScanRight135": right135, "ScanRight180": right180,
+                    }.get(pilot.state, 10)
                     pilot.update(10 + step * 0.016, distance)
                     if pilot.state == "Turn":
                         break
                 self.assertEqual(pilot.state, "Turn")
                 self.assertEqual((pilot.movement, pilot.angle), (expected, 90))
-                self.assertAlmostEqual(pilot.turn_duration, 0.9 if right <= 25 and left <= 25 else 0.4)
+                self.assertAlmostEqual(pilot.turn_duration, duration)
 
-    def test_front_fan_scan_sequence(self):
+    def test_scanner_stays_centered_while_driving(self):
         pilot = AutoPilot(25)
-        seen = []
-        previous_set = False
-        for step in range(100):
-            pilot.update(step * 0.016, 100)
-            if pilot.front_angle_set and not previous_set:
-                seen.append(pilot.angle)
-            previous_set = pilot.front_angle_set
-        self.assertEqual(seen[:5], [90, 60, 90, 120, 90])
+        readings = [pilot.update(step * 0.016, 100) for step in range(100)]
+        self.assertTrue(all(angle == 90 for _, angle in readings))
+        self.assertTrue(all(movement == "FORWARD" for movement, _ in readings))
 
-    def test_median_rejects_single_bad_measurement_and_remembers_near_echo(self):
-        pilot = AutoPilot(25)
-        for now, distance in ((0, 100), (0.008, 0), (0.016, 110)):
-            self.assertIsNone(pilot.read_distance(now, distance))
-        self.assertEqual(pilot.read_distance(0.024, 0), 100)
-        self.assertFalse(pilot.front_blocked(10, 0, 40))
-        self.assertTrue(pilot.front_blocked(10.9, 0, -1))
-        self.assertFalse(pilot.front_blocked(11.1, 0, -1))
-        self.assertTrue(pilot.front_blocked(12, 1, 30))
+    def test_distance_validation_treats_lost_echo_as_blocked(self):
+        pilot = AutoPilot(40)
+        self.assertFalse(pilot.clear(float("nan")))
+        self.assertFalse(pilot.clear(0))
+        self.assertFalse(pilot.clear(40))
+        self.assertTrue(pilot.clear(41))
+        self.assertTrue(pilot.clear(300))
 
-    def test_repeated_avoidance_increases_turn_duration_with_a_cap(self):
+    def test_turn_resumes_forward_with_sensor_centered(self):
         pilot = AutoPilot(25)
-        durations = []
-        for index in range(5):
-            now = 10 + index
-            pilot.last_avoid_end = now - 1
-            pilot.right, pilot.left = 100, 10
-            pilot.enter("CenterAfterLeft", now - 0.21)
-            pilot.update(now, 100)
-            durations.append(round(pilot.turn_duration, 2))
-        self.assertEqual(durations, [0.55, 0.7, 0.85, 0.85, 0.85])
+        pilot.start_turn(10, right=False)
+        self.assertEqual(pilot.update(10.79, 100), ("FORWARD", 90))
+        self.assertEqual(pilot.state, "CheckFront")
+
+    def test_wall_at_40_cm_starts_20_cm_reverse_before_scan(self):
+        pilot = self.state.pilot
+        self.assertEqual(pilot.update(0, 41), ("FORWARD", 90))
+        self.assertEqual(pilot.update(0.08, 40), ("BACKWARD", 90))
+        self.assertAlmostEqual(pilot.reverse_duration, 20 * 50 / 1000)
+        self.assertEqual(pilot.update(1.07, 100), ("BACKWARD", 90))
+        self.assertEqual(pilot.update(1.09, 100), ("STOPPED", 45))
+
+    def test_both_sides_blocked_reverse_30_cm_and_repeat_without_turning(self):
+        pilot = AutoPilot(40)
+        retries = 0
+        for step in range(1000):
+            previous = pilot.state
+            movement, angle = pilot.update(step * 0.016, 10)
+            self.assertNotIn(movement, ("LEFT", "RIGHT"))
+            if previous == "ScanRight180" and pilot.state == "Reverse":
+                retries += 1
+                self.assertEqual((movement, angle), ("BACKWARD", 90))
+                self.assertAlmostEqual(pilot.reverse_duration, 30 * 50 / 1000)
+        self.assertGreaterEqual(retries, 3)
+
+    def test_stop_cancels_each_auto_phase_and_does_not_resume(self):
+        for phase in ("CheckFront", "Reverse", "ScanLeft45", "ScanLeft0",
+                      "ScanRight135", "ScanRight180", "Turn"):
+            with self.subTest(phase=phase):
+                state = BridgeState(clock=lambda: self.now)
+                state.command("/driveauto")
+                state.update_simulation(0, 100)
+                state.pilot.state = phase
+                state.command("/stop")
+                for now in (1, 5, 20):
+                    movement, angle, _ = state.update_simulation(now, 100)
+                    self.assertEqual((movement, angle), ("STOPPED", 90))
 
     def test_turn_wheel_directions(self):
         self.assertEqual(WHEEL_DIRECTIONS["LEFT"], (-1, 1))
         self.assertEqual(WHEEL_DIRECTIONS["RIGHT"], (1, -1))
+
+    def test_scanner_angles_match_real_left_right_orientation(self):
+        self.assertGreater(scanner_position_radians(0), 0)
+        self.assertEqual(scanner_position_radians(90), 0)
+        self.assertLess(scanner_position_radians(180), 0)
 
     def test_port_override_and_invalid_configuration(self):
         with patch.dict(os.environ, {"ESP32_WEBOTS_PORT": "8082"}):

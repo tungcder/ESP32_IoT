@@ -99,8 +99,11 @@
   document.addEventListener('keyup', event => {
     if (keys[event.key] && held === keys[event.key]) { event.preventDefault(); stopMove(); }
   });
-  window.addEventListener('blur', stopMove);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) stopMove(); });
+  // AUTO continues while its tab is unfocused; release only held manual motion.
+  window.addEventListener('blur', () => { if (held !== null) stopMove(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && held !== null) stopMove();
+  });
   window.stopMove = stopMove;
   window.webotsControl = {
     testTimeout() { clearHold(); drive('/forward'); },

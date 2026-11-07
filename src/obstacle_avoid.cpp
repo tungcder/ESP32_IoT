@@ -8,47 +8,24 @@
 
 namespace {
   enum class State : uint8_t {
-    CheckFront, Reverse, StopBeforeScan,
-    PointRight, CenterAfterRight,
-    PointLeft, CenterAfterLeft,
-    Turn, FinishTurn
+    CheckFront, Reverse, ScanLeft45, ScanLeft0,
+    ScanRight135, ScanRight180, Turn
   };
 
-  // ---- Thong so doc cam bien (chinh lai cho hop voi cam bien cua ban) ----
-  constexpr int  MIN_VALID_CM = 2;     // nho hon -> coi la doc loi
-  constexpr int  MAX_VALID_CM = 200;   // lon hon (hoac timeout) -> coi la "khong co echo"
-  constexpr int  NO_ECHO      = -1;
-
-  // ---- Quet hinh quat phia truoc khi dang chay ----
-  // slot 0 = giua (90), slot 1 = lech phai (60), slot 2 = lech trai (120)
-  constexpr int  FRONT_ANGLE[3]   = {90, 60, 120};
-  constexpr uint8_t FRONT_SEQ[]   = {0, 1, 0, 2};  // kiem tra giua 2 lan moi vong
-  constexpr uint8_t FRONT_SEQ_LEN = sizeof(FRONT_SEQ) / sizeof(FRONT_SEQ[0]);
-  constexpr unsigned long SERVO_SETTLE_MS = 120;
-  constexpr unsigned long NEAR_MEMORY_MS  = 1000;  // nho gia tri "gan" truoc khi mat echo
-
-  // ---- Thong so quay ----
-  constexpr unsigned long TURN_BASE_MS = 400;
-  constexpr unsigned long TURN_STEP_MS = 150;   // moi lan gap vat can lien tiep quay them
-  constexpr unsigned long U_TURN_MS    = 900;   // ca hai ben deu bi chan -> quay dau
-  constexpr unsigned long STREAK_WINDOW_MS = 2500;
+  constexpr int MIN_VALID_CM = 2;
+  constexpr int MAX_VALID_CM = 400;
+  constexpr int NO_ECHO = -1;
+  constexpr unsigned long FRONT_INTERVAL_MS = 70;
+  constexpr unsigned long SERVO_SETTLE_MS = 250;
+  constexpr unsigned long SERVO_CROSS_SETTLE_MS = 350;
 
   State state = State::CheckFront;
   unsigned long stateStarted = 0;
   unsigned long lastFrontCheck = 0;
-
-  int rightDistance = 0;
-  int leftDistance = 0;
-  bool turnToRight = true;
-
-  uint8_t frontStep = 0;
-  bool frontAngleSet = false;
-  int lastValid[3] = {NO_ECHO, NO_ECHO, NO_ECHO};
-  unsigned long lastValidTime[3] = {0, 0, 0};
-
-  unsigned long turnDurationMs = TURN_BASE_MS;
-  uint8_t avoidStreak = 0;
-  unsigned long lastAvoidEnd = 0;
+  bool left45Clear = false;
+  bool right135Clear = false;
+  unsigned long reverseDurationMs = 0;
+  unsigned long turnDurationMs = 0;
 
   void enterState(State next) {
     state = next;
@@ -59,50 +36,36 @@ namespace {
     return (unsigned long)(millis() - stateStarted) >= ms;
   }
 
-  void resetFrontScan() {
-    frontStep = 0;
-    frontAngleSet = false;
-    for (int i = 0; i < 3; i++) {
-      lastValid[i] = NO_ECHO;
-      lastValidTime[i] = 0;
-    }
-  }
-
-  // Doc 3 lan, lay trung vi de loai nhieu. Tra NO_ECHO neu khong co echo hop le.
+  // One ping per check keeps the WebServer responsive and leaves enough time
+  // between HC-SR04 triggers for the previous echo to die away.
   int readDistanceCm() {
-    int s[3];
-    for (int i = 0; i < 3; i++) {
-      s[i] = getDistanceCm();
-      delay(8);
-    }
-    if (s[0] > s[1]) { int t = s[0]; s[0] = s[1]; s[1] = t; }
-    if (s[1] > s[2]) { int t = s[1]; s[1] = s[2]; s[2] = t; }
-    if (s[0] > s[1]) { int t = s[0]; s[0] = s[1]; s[1] = t; }
-    int median = s[1];
-    if (median < MIN_VALID_CM || median > MAX_VALID_CM) return NO_ECHO;
-    return median;
+    const int distance = getDistanceCm();
+    return distance >= MIN_VALID_CM && distance <= MAX_VALID_CM
+               ? distance : NO_ECHO;
   }
 
-  // Phat hien vat can phia truoc tai mot slot goc.
-  bool isFrontBlocked(uint8_t slot, int d) {
-    // Goc lech: tia chieu xien nen khoang cach do duoc dai hon thuc te -> nang nguong.
-    int threshold = (slot == 0) ? Config::SAFE_DISTANCE_CM
-                                : (Config::SAFE_DISTANCE_CM * 13) / 10;
+  bool isClear(int distance) {
+    return distance != NO_ECHO && distance > Config::SAFE_DISTANCE_CM;
+  }
 
-    if (d != NO_ECHO) {
-      lastValid[slot] = d;
-      lastValidTime[slot] = millis();
-      return d <= threshold;
-    }
+  void startReverse(int distanceCm) {
+    setServoAngle(90);
+    left45Clear = false;
+    right135Clear = false;
+    reverseDurationMs = distanceCm * Config::AUTO_REVERSE_MS_PER_CM;
+    Serial.printf("Reverse target: %d cm (timed estimate: %lu ms)\n",
+                  distanceCm, reverseDurationMs);
+    moveBackward();
+    enterState(State::Reverse);
+  }
 
-    // Mat echo: neu ngay truoc do con o gan thi nhieu kha nang la be mat
-    // nghieng da phan xa tia di cho khac -> coi nhu co vat can.
-    if (lastValid[slot] != NO_ECHO &&
-        lastValid[slot] <= Config::SAFE_DISTANCE_CM * 2 &&
-        (unsigned long)(millis() - lastValidTime[slot]) < NEAR_MEMORY_MS) {
-      return true;
-    }
-    return false;
+  void startTurn(bool right) {
+    // Center the sensor during the turn, so it is ready when driving resumes.
+    setServoAngle(90);
+    turnDurationMs = right ? Config::AUTO_RIGHT_90_MS : Config::AUTO_LEFT_90_MS;
+    if (right) turnRight();
+    else turnLeft();
+    enterState(State::Turn);
   }
 }
 
@@ -110,10 +73,9 @@ void setupObstacleAvoidance() {
   setServoAngle(90);
   state = State::CheckFront;
   stateStarted = millis();
-  lastFrontCheck = 0;
-  avoidStreak = 0;
-  lastAvoidEnd = 0;
-  resetFrontScan();
+  lastFrontCheck = millis() - FRONT_INTERVAL_MS;
+  left45Clear = false;
+  right135Clear = false;
 }
 
 void updateObstacleAvoidance() {
@@ -121,128 +83,81 @@ void updateObstacleAvoidance() {
 
   switch (state) {
     case State::CheckFront: {
-      uint8_t slot = FRONT_SEQ[frontStep];
-
-      // Buoc 1: xoay servo toi goc can kiem tra, doi servo on dinh
-      if (!frontAngleSet) {
-        setServoAngle(FRONT_ANGLE[slot]);
-        frontAngleSet = true;
-        lastFrontCheck = millis();
-        return;
-      }
-      if ((unsigned long)(millis() - lastFrontCheck) < SERVO_SETTLE_MS) return;
-
-      // Buoc 2: doc cam bien
-      int d = readDistanceCm();
-      Serial.printf("Front[%d deg]: %d cm\n", FRONT_ANGLE[slot], d);
-      if (d == NO_ECHO) {
-        stopCar();
-        frontAngleSet = false;
-        return;
-      }
-      bool blocked = isFrontBlocked(slot, d);
-
-      frontAngleSet = false;
-      frontStep = (frontStep + 1) % FRONT_SEQ_LEN;
-
-      if (!blocked) {
+      if ((unsigned long)(millis() - lastFrontCheck) < FRONT_INTERVAL_MS) return;
+      lastFrontCheck = millis();
+      const int distance = readDistanceCm();
+      Serial.printf("Front[90 deg]: %d cm\n", distance);
+      if (isClear(distance)) {
         moveForward();
       } else {
-        stopCar();
-        resetFrontScan();
-        enterState(State::Reverse);
-        moveBackward();
+        // A missing echo is unknown space, so back away and scan rather than
+        // driving forward blindly or remaining stopped forever.
+        startReverse(Config::AUTO_REVERSE_CM);
       }
       break;
     }
 
     case State::Reverse:
-      if (elapsed(300)) {
+      if (elapsed(reverseDurationMs)) {
         stopCar();
-        enterState(State::StopBeforeScan);
+        setServoAngle(45);
+        enterState(State::ScanLeft45);
       }
       break;
 
-    case State::StopBeforeScan:
-      if (elapsed(100)) {
-        setServoAngle(10); // goc phia ben phai
-        enterState(State::PointRight);
+    case State::ScanLeft45:
+      if (elapsed(SERVO_SETTLE_MS)) {
+        const int distance = readDistanceCm();
+        left45Clear = isClear(distance);
+        Serial.printf("Left[45 deg]: %d cm\n", distance);
+        setServoAngle(0);
+        enterState(State::ScanLeft0);
       }
       break;
 
-    case State::PointRight:
-      if (elapsed(300)) {
-        int d = readDistanceCm();
-        // Khong co echo o ben canh: khong chac an toan -> coi nhu bi chan
-        rightDistance = (d == NO_ECHO) ? 0 : d;
-        Serial.printf("Right: %d cm (raw %d)\n", rightDistance, d);
-        setServoAngle(90);
-        enterState(State::CenterAfterRight);
-      }
-      break;
-
-    case State::CenterAfterRight:
-      if (elapsed(200)) {
-        setServoAngle(170); // goc phia ben trai
-        enterState(State::PointLeft);
-      }
-      break;
-
-    case State::PointLeft:
-      if (elapsed(300)) {
-        int d = readDistanceCm();
-        leftDistance = (d == NO_ECHO) ? 0 : d;
-        Serial.printf("Left: %d cm (raw %d)\n", leftDistance, d);
-        setServoAngle(90);
-        enterState(State::CenterAfterLeft);
-      }
-      break;
-
-    case State::CenterAfterLeft:
-      if (elapsed(200)) {
-        bool bothBlocked = rightDistance <= Config::SAFE_DISTANCE_CM &&
-                           leftDistance <= Config::SAFE_DISTANCE_CM;
-
-        if (bothBlocked) {
-          // Ca hai ben deu bi chan: quay dau thay vi dung yen
-          Serial.println("Both sides blocked; U-turn.");
-          turnToRight = true;
-          turnDurationMs = U_TURN_MS;
-          turnRight();
+    case State::ScanLeft0:
+      if (elapsed(SERVO_SETTLE_MS)) {
+        const int distance = readDistanceCm();
+        Serial.printf("Left[0 deg]: %d cm\n", distance);
+        if (left45Clear && isClear(distance)) {
+          Serial.println("Left clear; turning left.");
+          startTurn(false);
         } else {
-          // Gap vat can lien tiep trong thoi gian ngan -> quay nhieu hon
-          if ((unsigned long)(millis() - lastAvoidEnd) < STREAK_WINDOW_MS) {
-            if (avoidStreak < 3) avoidStreak++;
-          } else {
-            avoidStreak = 0;
-          }
-          turnDurationMs = TURN_BASE_MS + avoidStreak * TURN_STEP_MS;
-
-          turnToRight = rightDistance > leftDistance;
-          if (turnToRight) {
-            Serial.println("Turning right");
-            turnRight();
-          } else {
-            Serial.println("Turning left");
-            turnLeft();
-          }
+          setServoAngle(135);
+          enterState(State::ScanRight135);
         }
-        enterState(State::Turn);
+      }
+      break;
+
+    case State::ScanRight135:
+      if (elapsed(SERVO_CROSS_SETTLE_MS)) {
+        const int distance = readDistanceCm();
+        right135Clear = isClear(distance);
+        Serial.printf("Right[135 deg]: %d cm\n", distance);
+        setServoAngle(180);
+        enterState(State::ScanRight180);
+      }
+      break;
+
+    case State::ScanRight180:
+      if (elapsed(SERVO_SETTLE_MS)) {
+        const int distance = readDistanceCm();
+        Serial.printf("Right[180 deg]: %d cm\n", distance);
+        const bool rightClear = right135Clear && isClear(distance);
+        if (rightClear) {
+          Serial.println("Right clear; turning right 90 degrees (timed estimate).");
+          startTurn(true);
+        } else {
+          Serial.println("Both sides blocked; reverse 30 cm and scan again.");
+          startReverse(Config::AUTO_RETRY_REVERSE_CM);
+        }
       }
       break;
 
     case State::Turn:
       if (elapsed(turnDurationMs)) {
-        stopCar();
-        enterState(State::FinishTurn);
-      }
-      break;
-
-    case State::FinishTurn:
-      if (elapsed(100)) {
-        lastAvoidEnd = millis();
-        resetFrontScan();
-        setServoAngle(90);
+        moveForward();
+        lastFrontCheck = millis() - FRONT_INTERVAL_MS;
         enterState(State::CheckFront);
       }
       break;

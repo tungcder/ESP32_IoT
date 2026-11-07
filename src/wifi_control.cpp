@@ -7,6 +7,7 @@
 #include "motor_control.h"
 #include "safety.h"
 #include "drive_mode.h"
+#include "obstacle_avoid.h"
 #include "web_page.h"
 #include "wifi_control.h"
 
@@ -111,6 +112,7 @@ namespace {
 
   void handleDriveAuto() {
     stopCar();
+    setupObstacleAvoidance();
     setDriveMode(DriveMode::Auto);
     resetCommandTimer();
     server.send(200, "text/plain", "DRIVE AUTO");
