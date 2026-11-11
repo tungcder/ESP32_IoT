@@ -19,6 +19,33 @@ namespace {
   unsigned long lastWiFiStatusMs = 0;
   constexpr unsigned long WIFI_STATUS_INTERVAL_MS = 5000;
 
+  void handleGamepad() {
+  if (getDriveMode() != DriveMode::Manual) {
+    server.send(409, "text/plain", "AUTO mode active");
+    return;
+  }
+
+  if (!server.hasArg("left") || !server.hasArg("right")) {
+    stopCar();
+    server.send(400, "text/plain", "Missing motor values");
+    return;
+  }
+
+  int left = server.arg("left").toInt();
+  int right = server.arg("right").toInt();
+
+  if (left < -100 || left > 100 ||
+      right < -100 || right > 100) {
+    stopCar();
+    server.send(400, "text/plain", "Invalid motor values");
+    return;
+  }
+
+  setMotorSpeeds(left, right);
+  resetCommandTimer();
+
+  server.send(200, "text/plain", "GAMEPAD OK");
+}
   void onWiFiDisconnected(WiFiEvent_t, WiFiEventInfo_t info) {
     const uint8_t reason = info.wifi_sta_disconnected.reason;
     Serial.printf("\n[Wi-Fi] Disconnected | reason: %u\n", reason);
@@ -169,6 +196,7 @@ void setupWiFiAndServer() {
 
   server.on("/", HTTP_GET, handleRoot);
   server.on("/forward", HTTP_GET, handleForward);
+  server.on("/gamepad", HTTP_GET, handleGamepad);
   server.on("/backward", HTTP_GET, handleBackward);
   server.on("/left", HTTP_GET, handleLeft);
   server.on("/right", HTTP_GET, handleRight);

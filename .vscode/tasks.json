@@ -1,0 +1,24 @@
+
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Run Webots Simulation",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/simulation/run.ps1",
+                "-WebotsPath",
+                "C:\\Users\\Tung\\AppData\\Local\\Programs\\Webots\\msys64\\mingw64\\bin\\webotsw.exe"
+            ],
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+}

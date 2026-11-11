@@ -11,9 +11,10 @@ namespace Config {
   constexpr uint8_t MOTOR_IN2 = 26;
   constexpr uint8_t MOTOR_IN3 = 25;
   constexpr uint8_t MOTOR_IN4 = 33;
-  constexpr uint8_t MOTOR_SPEED_PERCENT = 50;
-  // Rounded 8-bit PWM: 128/255, approximately 50%.
+  constexpr uint8_t MOTOR_SPEED_PERCENT = 50;        // tốc độ tiến/lùi
   constexpr uint8_t MOTOR_SPEED_DUTY = (255 * MOTOR_SPEED_PERCENT + 50) / 100;
+  constexpr uint8_t MOTOR_TURN_SPEED_PERCENT = 50;   // tốc độ quay tại chỗ
+  constexpr uint8_t MOTOR_TURN_SPEED_DUTY = (255 * MOTOR_TURN_SPEED_PERCENT + 50) / 100;
 
   // HC-SR04
   constexpr uint8_t TRIG_PIN = 16;
@@ -29,14 +30,14 @@ namespace Config {
   constexpr uint8_t LED_REAR_RIGHT  = 23;
 
   // Connect to the same 2.4 GHz Wi-Fi network as the laptop.
-  constexpr char WIFI_SSID[] = "Hung Dong 2006";
-  constexpr char WIFI_PASSWORD[] = "44448888";
+  constexpr char WIFI_SSID[] = "Tung Tung";
+  constexpr char WIFI_PASSWORD[] = "88888888";
   constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;
 
   constexpr unsigned long COMMAND_TIMEOUT_MS = 500;
   constexpr int SAFE_DISTANCE_CM = 40;
-  constexpr int AUTO_REVERSE_CM = 20;
-  constexpr int AUTO_RETRY_REVERSE_CM = 30;
+  constexpr int AUTO_REVERSE_CM = 8;
+  constexpr int AUTO_RETRY_REVERSE_CM = 12;
   // Initial estimates at 50% PWM, NOT measured distances/angles.
   // Calibrate on the real car; changing speed/voltage requires recalibration.
   constexpr unsigned long AUTO_REVERSE_MS_PER_CM = 50;
