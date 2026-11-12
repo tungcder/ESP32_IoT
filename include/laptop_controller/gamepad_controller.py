@@ -53,6 +53,7 @@ print("-----------------------------------")
 session = requests.Session()
 
 manual_enabled = False
+mode_epoch = None
 last_send_time = 0
 last_print_command = None
 
@@ -78,17 +79,37 @@ def apply_deadzone(value):
 
 
 def send_request(endpoint, params=None):
+    global manual_enabled, mode_epoch
+
     try:
+        # Refresh ownership only on an explicit mode selection, never while driving.
+        if endpoint in ("drivemanual", "driveauto"):
+            status = session.get(f"{BASE_URL}/status", timeout=REQUEST_TIMEOUT)
+            status.raise_for_status()
+            mode_epoch = status.json()["mode_epoch"]
+
+        if mode_epoch is None:
+            return False
+
         response = session.get(
             f"{BASE_URL}/{endpoint}",
             params=params,
+            headers={"X-Mode-Epoch": str(mode_epoch)},
             timeout=REQUEST_TIMEOUT
         )
 
+        if response.status_code == 409:
+            manual_enabled = False
+            mode_epoch = None
+            print("Quyen dieu khien da thay doi. Nhan A de chon lai Manual.")
+            return False
+
         response.raise_for_status()
+        if endpoint in ("drivemanual", "driveauto"):
+            mode_epoch = response.json()["mode_epoch"]
         return True
 
-    except requests.RequestException as error:
+    except (requests.RequestException, ValueError, KeyError) as error:
         print("Loi ket noi ESP32:", error)
         return False
 
@@ -247,14 +268,8 @@ except KeyboardInterrupt:
 finally:
     print("Sending STOP command...")
 
-    try:
-        session.get(
-            f"{BASE_URL}/gamepad",
-            params={"left": 0, "right": 0},
-            timeout=1
-        )
-    except requests.RequestException:
-        pass
+    if manual_enabled:
+        stop_robot()
 
     session.close()
     pygame.quit()

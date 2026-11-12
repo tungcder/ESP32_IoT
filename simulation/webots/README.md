@@ -93,11 +93,11 @@ trên máy chủ, chưa có video hoặc streaming 3D sang trình duyệt của 
 - Server xử lý nhiều kết nối đồng thời để tab mở sẵn hoặc máy khác không chặn
   lệnh điều khiển. Điều này không cấp quyền lái riêng cho từng người.
 - **OBSTACLE AUTO** chạy logic Python tương ứng `src/obstacle_avoid.cpp`:
-  xe tiến với mức điều khiển 50%, sonar giữ 90°. Khoảng cách phía trước <=40 cm
-  thì xe lùi mục tiêu 20 cm, dừng ngắn để đo bên trái tại 45° rồi 0°.
+  xe tiến/lùi ở 50% PWM, quay trái/phải ở 50% PWM; sonar giữ 90° khi tiến. Khoảng cách phía trước <=40 cm
+  thì xe lùi mục tiêu 8 cm, dừng ngắn để đo bên trái tại 135° rồi 180°.
   Cả hai góc trái >40 cm thì rẽ trái mục tiêu 90°. Nếu trái bị chặn, đo bên phải
-  tại 135° rồi 180°; phải trống thì rẽ phải mục tiêu 90°. Nếu cả hai phía bị chặn,
-  lùi thêm mục tiêu 30 cm và quét lại từ trái. Không quay vào hướng đã bị chặn.
+  tại 45° rồi 0°; phải trống thì rẽ phải mục tiêu 90°. Nếu cả hai phía bị chặn,
+  lùi thêm mục tiêu 12 cm và quét lại từ trái. Không quay vào hướng đã bị chặn.
   Quãng lùi/góc quay dùng thời gian cấu hình chung với firmware, chưa đo bằng
   encoder. Xem [cách hiệu chỉnh](../../docs/AUTO_CALIBRATION.md).
   Servo về 90° trước khi quay và xe tiếp tục tiến sau khi quay. Đổi tab trình
@@ -117,8 +117,31 @@ trên máy chủ, chưa có video hoặc streaming 3D sang trình duyệt của 
 
 Đây là mô phỏng chuyển động và logic Python, không chạy firmware Arduino trên
 chip ESP32 và không xác nhận GPIO, mạch L298N hay Wi-Fi thực. Sonar mô phỏng trả
-tối đa 200 cm; chưa tái hiện lỗi mất Echo của HC-SR04. Chưa tích hợp AI.
-Kế hoạch YOLOv8 ONNX nằm riêng tại `G:\robot_IOT\ai_object_navigation_plan.md`.
+tối đa 200 cm; chưa tái hiện lỗi mất Echo của HC-SR04. Controller hỗ trợ mode AI
+và giao thức phiên/lệnh tương ứng firmware để nhận lệnh từ laptop.
+[Ứng dụng AI](../../ai/README.md) nhận camera iPhone qua WebRTC và chạy YOLOv8n riêng;
+chưa có camera ảo trong world. Đặt địa chỉ xe `http://127.0.0.1:8081` trên web AI.
+
+### Thử tốc độ quay AI 50–40% PWM
+
+Webots nhận lệnh từ cùng `ai/follower.py` dùng cho xe thật, không có bản sao
+thuật toán AI riêng. Vượt line ngoài 35–65%: dừng ít nhất 150 ms rồi quay ở
+50% PWM. Khi tâm mục tiêu tiến về vùng dừng 40–60%, tốc độ giảm dần qua 45%
+về 40% PWM; vào vùng dừng thì dừng quay, xác nhận 3 ảnh mới rồi tiến 50% PWM.
+
+1. Chạy Webots bằng `simulation/run.ps1`, giữ world ở Real-time.
+2. Khởi động lại ứng dụng AI bằng `ai/run.ps1` để nạp tốc độ mới.
+3. Trên bảng AI, đặt **Địa chỉ ESP32 hoặc Webots** thành
+   `http://127.0.0.1:8081` rồi bấm **Lưu cấu hình**. Nếu chạy Webots với
+   `-Port 8082`, dùng cổng 8082 tương ứng.
+4. Quét QR bằng iPhone, mở Safari và bật camera trước. Khi có hình mới,
+   bấm **Bắt đầu bám mục tiêu**. Dịch mục tiêu sang trái/phải và về vùng giữa.
+5. Trên trang web Webots, mục **Thông tin mô phỏng Webots** hiển thị chế độ,
+   chuyển động và PWM động cơ để đối chiếu 50% → 45% → 40% → 0%.
+
+Camera iPhone trong phép thử này không tự đổi hướng theo xe 3D; cần dịch
+mục tiêu hoặc xoay điện thoại để đưa tâm mục tiêu về vùng giữa. Webots áp dụng
+PWM theo tỷ lệ tốc độ bánh xe, chưa mô phỏng đầy đủ quán tính và ma sát của xe thật.
 
 ## Kiểm tra
 

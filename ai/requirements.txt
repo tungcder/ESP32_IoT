@@ -1,0 +1,6 @@
+numpy>=1.26
+opencv-python>=4.8
+onnxruntime>=1.18
+aiohttp>=3.11,<4
+aiortc>=1.14,<2
+cryptography>=44

@@ -17,7 +17,10 @@
       const response = await fetch('/state', {cache: 'no-store', signal: AbortSignal.timeout(2000)});
       if (!response.ok) throw new Error('HTTP ' + response.status);
       const state = await response.json();
-      values.textContent = 'Khoảng cách: ' + state.distance_cm + ' cm\n'
+      values.textContent = 'Chế độ: ' + state.drive_mode + '\n'
+        + 'Chuyển động: ' + state.movement + '\n'
+        + 'PWM động cơ: ' + state.speed_percent + '%\n'
+        + 'Khoảng cách: ' + state.distance_cm + ' cm\n'
         + 'Góc cảm biến: ' + state.scanner_angle_deg + '°\n'
         + 'Bước AUTO: ' + state.auto_state + '\n'
         + 'Thời gian mô phỏng: ' + state.sim_time.toFixed(2) + ' s';

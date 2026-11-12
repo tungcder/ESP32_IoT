@@ -7,6 +7,7 @@
 #include "servo_scan.h"
 #include "obstacle_avoid.h"
 #include "drive_mode.h"
+#include "ai_control.h"
 
 void setup() {
   Serial.begin(115200);
@@ -28,5 +29,6 @@ void setup() {
 void loop() {
   handleWebServer();
   checkCommandTimeout();
+  updateAIControl();
   updateObstacleAvoidance();
 }

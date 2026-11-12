@@ -13,8 +13,8 @@ ALIGNMENT_POLICY = "raw_center_hysteresis_v2"
 
 @dataclass(frozen=True)
 class AlignmentConfig:
-    start_threshold: float = 0.05
-    stop_threshold: float = 0.03
+    start_threshold: float = 0.15
+    stop_threshold: float = 0.10
     smoothing_alpha: float = 0.4
     kp: float = 1.2
     min_angular_speed: float = 0.08
@@ -58,6 +58,9 @@ class AlignmentResult:
     filtered_error_normalized: float | None = None
     confidence: float | None = None
     frame_time: float | None = None
+    target_id: int | None = None
+    box_xyxy: tuple | None = None
+    display_box_xyxy: tuple | None = None
 
     def as_dict(self):
         return asdict(self)
@@ -80,15 +83,37 @@ def detections_from_result(result):
 
 
 class TargetAligner:
-    def __init__(self, config=None):
+    def __init__(self, config=None, *, confidence=0.25, tracking_confidence=0.15,
+                 target_memory=0.25, box_smoothing=0.5):
         self.config = config if isinstance(config, AlignmentConfig) else AlignmentConfig.from_dict(config)
+        if (not all(math.isfinite(v) for v in (confidence, tracking_confidence, target_memory, box_smoothing))
+                or not 0 <= tracking_confidence <= confidence <= 1
+                or not 0 <= target_memory <= self.config.frame_timeout
+                or not 0 < box_smoothing <= 1):
+            raise ValueError("Invalid confidence, target memory or box smoothing.")
+        self.confidence, self.tracking_confidence = confidence, tracking_confidence
+        self.target_memory, self.box_smoothing = target_memory, box_smoothing
+        self._next_target_id = 0
         self.reset()
 
     def reset(self, reason="no_frame"):
         self._box = None
         self._filtered = None
         self._turning = False
+        self._display_box = None
+        self._last_seen = None
+        self._frame_size = None
+        self._target_id = None
         self.result = AlignmentResult(reason=reason)
+        return self.result
+
+    def _missing(self, stamp):
+        # Retain association briefly, never invent a detection for motor control.
+        if self._last_seen is not None and stamp - self._last_seen > self.target_memory:
+            self.reset("target_lost")
+        self._filtered, self._turning = None, False
+        self.result = AlignmentResult(reason="target_lost", frame_time=stamp,
+                                      target_id=self._target_id)
         return self.result
 
     def current_command(self, now=None):
@@ -111,6 +136,11 @@ class TargetAligner:
             return self.reset("out_of_order_frame")
         if self.result.frame_time is not None and stamp-self.result.frame_time > self.config.frame_timeout:
             self.reset("stale_frame")
+        if self._frame_size is not None and self._frame_size != (width, height):
+            self.reset("image_size_changed")
+        if self._last_seen is not None and stamp-self._last_seen > self.target_memory:
+            self.reset("target_lost")
+        self._frame_size = (width, height)
         candidates = []
         for detection in detections:
             if detection.get("class_id") != self.config.target_class:
@@ -121,18 +151,38 @@ class TargetAligner:
                 continue
             box = [max(0.0,min(float(width),box[0])), max(0.0,min(float(height),box[1])),
                    max(0.0,min(float(width),box[2])), max(0.0,min(float(height),box[3]))]
-            if box[2] > box[0] and box[3] > box[1]:
+            if box[2] > box[0] and box[3] > box[1] and score >= self.tracking_confidence:
                 candidates.append((box, score))
         if not candidates:
-            return self.reset("target_lost")
+            return self._missing(stamp)
         # Keep the overlapping board rather than switching when confidences fluctuate.
         overlapping = [(box, score) for box, score in candidates
-                       if self._box is not None and _iou(self._box, box) >= 0.1]
+                       if self._box is not None and _iou(self._box, box) >= 0.2
+                       and 0.5 <= ((box[2]-box[0])*(box[3]-box[1])) /
+                       ((self._box[2]-self._box[0])*(self._box[3]-self._box[1])) <= 2.0]
         if overlapping:
             box, score = max(overlapping, key=lambda item: _iou(self._box, item[0]))
         else:
+            # An unrelated object cannot steal a temporarily uncertain track.
+            if self._box is not None:
+                return self._missing(stamp)
+            candidates = [(box, score) for box, score in candidates if score >= self.confidence]
+            if not candidates:
+                return self._missing(stamp)
             box, score = max(candidates, key=lambda item: item[1])
             self._filtered, self._turning = None, False
+            self._next_target_id += 1
+            self._target_id = self._next_target_id
+        # Smooth only the drawn rectangle. Raw centers still control boundary
+        # crossings and stopping, so smoothing adds no delay to motor decisions.
+        alpha = self.box_smoothing
+        if (self._display_box is None
+                or abs((box[0]+box[2])-(self._box[0]+self._box[2])) > width*0.1
+                or abs((box[1]+box[3])-(self._box[1]+self._box[3])) > height*0.1):
+            self._display_box = list(box)
+        else:
+            self._display_box = [alpha*x+(1-alpha)*old for x, old in zip(box, self._display_box)]
+        self._last_seen = stamp
         cx, cy = (box[0]+box[2])/2, (box[1]+box[3])/2
         error = (cx-width/2)/width
         if self._filtered is None or error*self._filtered < 0:
@@ -162,12 +212,13 @@ class TargetAligner:
         self.result = AlignmentResult(command=command, reason=reason, angular_velocity=angular,
             found=True, center_x=cx, center_y=cy, error_px=cx-width/2,
             error_normalized=error, filtered_error_normalized=filtered,
-            confidence=score, frame_time=stamp)
+            confidence=score, frame_time=stamp, target_id=self._target_id,
+            box_xyxy=tuple(box), display_box_xyxy=tuple(self._display_box))
         return self.result
 
 
-def draw_alignment(image, result, config=None):
-    """Draw the center, two raw trigger boundaries, selected center and command."""
+def draw_alignment_guides(image, config=None):
+    """Draw the same fixed guides on processed and camera-only previews."""
     import cv2
     cfg = config if isinstance(config, AlignmentConfig) else AlignmentConfig.from_dict(config)
     canvas = image.copy()
@@ -189,6 +240,16 @@ def draw_alignment(image, result, config=None):
                         cv2.FONT_HERSHEY_SIMPLEX,0.4,(0,0,0),3,cv2.LINE_AA)
             cv2.putText(canvas,label,(max(2,min(w-65,x+4)),y),
                         cv2.FONT_HERSHEY_SIMPLEX,0.4,color,1,cv2.LINE_AA)
+    return canvas
+
+
+def draw_alignment(image, result, config=None):
+    """Draw the center, two raw trigger boundaries, selected center and command."""
+    import cv2
+    cfg = config if isinstance(config, AlignmentConfig) else AlignmentConfig.from_dict(config)
+    canvas = draw_alignment_guides(image, cfg)
+    h, w = canvas.shape[:2]
+    middle = round(w / 2)
     color = (60,220,80) if result.command == "STOP" and result.found else (30,150,255)
     if result.found:
         point = (round(result.center_x),round(result.center_y))

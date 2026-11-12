@@ -35,6 +35,9 @@ namespace Config {
   constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;
 
   constexpr unsigned long COMMAND_TIMEOUT_MS = 500;
+  constexpr int AI_STOP_DISTANCE_CM = 20;
+  constexpr int AI_RESUME_DISTANCE_CM = 25;
+  constexpr unsigned long AI_SENSOR_INTERVAL_MS = 70;
   constexpr int SAFE_DISTANCE_CM = 40;
   constexpr int AUTO_REVERSE_CM = 8;
   constexpr int AUTO_RETRY_REVERSE_CM = 12;

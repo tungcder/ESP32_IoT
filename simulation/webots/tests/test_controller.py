@@ -7,7 +7,7 @@ import threading
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "controllers/esp32_car"))
 from esp32_car import (BridgeState, ControllerServer, WHEEL_DIRECTIONS,
@@ -48,13 +48,13 @@ class ControllerTests(unittest.TestCase):
     def test_manual_stop_cannot_cancel_auto(self):
         self.state.command("/driveauto")
         self.state.update_simulation(0, 10)
-        self.advance_until(lambda: self.state.pilot.state == "ScanLeft45", 10)
-        self.assertEqual(self.state.pilot.angle, 45)
+        self.advance_until(lambda: self.state.pilot.state == "ScanLeft135", 10)
+        self.assertEqual(self.state.pilot.angle, 135)
         self.assertIsNone(self.state.command("/stop"))
         movement, angle, _ = self.state.update_simulation(self.state.sim_time + 0.016, 10)
         self.assertEqual(self.state.drive_mode, "AUTO")
-        self.assertEqual(self.state.pilot.state, "ScanLeft45")
-        self.assertEqual(angle, 45)
+        self.assertEqual(self.state.pilot.state, "ScanLeft135")
+        self.assertEqual(angle, 135)
 
     def test_auto_ignores_manual_watchdog_and_reentry_resets(self):
         self.state.command("/driveauto")
@@ -81,7 +81,7 @@ class ControllerTests(unittest.TestCase):
         self.state.update_simulation(1, float("nan"))
         self.assertEqual(self.state.pilot.state, "Reverse")
         self.assertEqual(self.state.movement, "BACKWARD")
-        self.advance_until(lambda: self.state.pilot.state == "ScanLeft45", float("nan"))
+        self.advance_until(lambda: self.state.pilot.state == "ScanLeft135", float("nan"))
         self.assertEqual(self.state.distance_cm, 0)
         self.assertEqual(self.state.movement, "STOPPED")
 
@@ -91,14 +91,14 @@ class ControllerTests(unittest.TestCase):
             (10, 100, 100, 100, "RIGHT", 0.78),
             (100, 10, 100, 100, "RIGHT", 0.78),
         )
-        for left45, left0, right135, right180, expected, duration in cases:
+        for left135, left180, right45, right0, expected, duration in cases:
             with self.subTest(expected=expected, duration=duration):
                 pilot = AutoPilot(40)
                 pilot.reset(10)
                 for step in range(400):
                     distance = {
-                        "ScanLeft45": left45, "ScanLeft0": left0,
-                        "ScanRight135": right135, "ScanRight180": right180,
+                        "ScanLeft135": left135, "ScanLeft180": left180,
+                        "ScanRight45": right45, "ScanRight0": right0,
                     }.get(pilot.state, 10)
                     pilot.update(10 + step * 0.016, distance)
                     if pilot.state == "Turn":
@@ -127,30 +127,34 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(pilot.update(10.79, 100), ("FORWARD", 90))
         self.assertEqual(pilot.state, "CheckFront")
 
-    def test_wall_at_40_cm_starts_20_cm_reverse_before_scan(self):
+    def test_wall_at_40_cm_starts_8_cm_reverse_before_scan(self):
         pilot = self.state.pilot
         self.assertEqual(pilot.update(0, 41), ("FORWARD", 90))
         self.assertEqual(pilot.update(0.08, 40), ("BACKWARD", 90))
-        self.assertAlmostEqual(pilot.reverse_duration, 20 * 50 / 1000)
-        self.assertEqual(pilot.update(1.07, 100), ("BACKWARD", 90))
-        self.assertEqual(pilot.update(1.09, 100), ("STOPPED", 45))
+        self.assertAlmostEqual(pilot.reverse_duration, 8 * 50 / 1000)
+        self.assertEqual(pilot.update(0.47, 100), ("BACKWARD", 90))
+        self.assertEqual(pilot.update(0.49, 100), ("STOPPED", 135))
 
-    def test_both_sides_blocked_reverse_30_cm_and_repeat_without_turning(self):
+    def test_both_sides_blocked_reverse_12_cm_and_repeat_without_turning(self):
         pilot = AutoPilot(40)
         retries = 0
         for step in range(1000):
             previous = pilot.state
             movement, angle = pilot.update(step * 0.016, 10)
             self.assertNotIn(movement, ("LEFT", "RIGHT"))
-            if previous == "ScanRight180" and pilot.state == "Reverse":
+            if previous == "ScanRight0" and pilot.state == "Reverse":
                 retries += 1
                 self.assertEqual((movement, angle), ("BACKWARD", 90))
-                self.assertAlmostEqual(pilot.reverse_duration, 30 * 50 / 1000)
+                self.assertAlmostEqual(pilot.reverse_duration, 12 * 50 / 1000)
         self.assertGreaterEqual(retries, 3)
 
+    def test_real_config_and_webots_use_tung_reverse_distances(self):
+        self.assertEqual(self.state.pilot.reverse_cm, 8)
+        self.assertEqual(self.state.pilot.retry_reverse_cm, 12)
+
     def test_manual_mode_cancels_each_auto_phase_and_does_not_resume(self):
-        for phase in ("CheckFront", "Reverse", "ScanLeft45", "ScanLeft0",
-                      "ScanRight135", "ScanRight180", "Turn"):
+        for phase in ("CheckFront", "Reverse", "ScanLeft135", "ScanLeft180",
+                      "ScanRight45", "ScanRight0", "Turn"):
             with self.subTest(phase=phase):
                 state = BridgeState(clock=lambda: self.now)
                 state.command("/driveauto")
@@ -166,9 +170,9 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(WHEEL_DIRECTIONS["RIGHT"], (1, -1))
 
     def test_scanner_angles_match_real_left_right_orientation(self):
-        self.assertGreater(scanner_position_radians(0), 0)
+        self.assertLess(scanner_position_radians(0), 0)
         self.assertEqual(scanner_position_radians(90), 0)
-        self.assertLess(scanner_position_radians(180), 0)
+        self.assertGreater(scanner_position_radians(180), 0)
 
     def test_port_override_and_invalid_configuration(self):
         with patch.dict(os.environ, {"ESP32_WEBOTS_PORT": "8082"}):
@@ -188,7 +192,7 @@ class ControllerTests(unittest.TestCase):
             # beyond the firmware's 500 ms manual watchdog.
             idle.sendall(b"GET /state HTTP/1.1\r\nHost: localhost\r\n")
             self.state.command("/forward")
-            with urlopen(f"http://127.0.0.1:{server.server_port}/stop", timeout=0.4) as response:
+            with urlopen(Request(f"http://127.0.0.1:{server.server_port}/stop", headers={"X-Mode-Epoch": str(self.state.mode_epoch)}), timeout=0.4) as response:
                 self.assertEqual(response.status, 200)
             self.assertEqual(self.state.snapshot()["movement"], "STOPPED")
         finally:
@@ -211,14 +215,14 @@ class ControllerTests(unittest.TestCase):
             self.assertIn('id="autoPanel"', page)
             self.assertIn('id="manualPanel" hidden', page)
             self.assertNotIn("LED LIGHT CONTROL", page)
-            with urlopen(root + "/forward", timeout=2) as response:
+            with urlopen(Request(root + "/forward", headers={"X-Mode-Epoch": str(self.state.mode_epoch)}), timeout=2) as response:
                 self.assertEqual(response.status, 200)
             with urlopen(root + "/state", timeout=2) as response:
                 self.assertEqual(json.load(response)["movement"], "FORWARD")
-            with urlopen(root + "/driveauto", timeout=2) as response:
+            with urlopen(Request(root + "/driveauto", headers={"X-Mode-Epoch": str(self.state.mode_epoch)}), timeout=2) as response:
                 self.assertEqual(response.status, 200)
             with self.assertRaises(HTTPError) as conflict:
-                urlopen(root + "/forward", timeout=2)
+                urlopen(Request(root + "/forward", headers={"X-Mode-Epoch": str(self.state.mode_epoch)}), timeout=2)
             self.assertEqual(conflict.exception.code, 409)
             conflict.exception.close()
             with urlopen(root + "/status", timeout=2) as response:

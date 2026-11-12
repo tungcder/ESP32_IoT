@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="vi">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ESP32 · AI camera</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#0b1118;color:#eef5fa}*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% -20%,#1b3d47,#0b1118 60%);min-height:100vh}main{width:min(1280px,100% - 40px);margin:auto;padding:30px 0 48px}h1{margin:6px 0;font-size:clamp(27px,4vw,40px)}h2{font-size:18px;margin:0 0 12px}p{color:#a9bdca;font-size:14px;line-height:1.6}small,.eyebrow{color:#78d9bd}.eyebrow{font-size:12px;letter-spacing:.17em;font-weight:750}.nav{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:24px 0}button,a.button{font:inherit;cursor:pointer;border:1px solid #334954;border-radius:12px;color:#d8e8ef;background:#14232c;padding:13px 16px;text-decoration:none}button:disabled{opacity:.4;cursor:default}.nav button{text-align:left}.nav strong,.nav span{display:block}.nav span{font-size:12px;color:#a9bdca;margin-top:5px}.nav .active{background:#1c493f;border-color:#72dcb7}.health{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}.badge{font-size:12px;padding:7px 11px;border-radius:20px;background:#263b48;color:#bdd0da}.badge.ok{background:#193f33;color:#9af0c1}.badge.bad{background:#462b25;color:#ffc09a}.layout{display:grid;grid-template-columns:minmax(0,1.75fr) minmax(300px,1fr);gap:18px;align-items:start}.card{border:1px solid #2d424d;border-radius:18px;padding:21px;background:#111e27}.stack{display:grid;gap:18px}.camera{aspect-ratio:3/4;background:#071017;border-radius:12px;position:relative;overflow:hidden;display:grid;place-items:center}.camera canvas{width:100%;height:100%;object-fit:contain;position:absolute}.camera canvas[hidden]{display:none}.camera .placeholder{text-align:center;padding:25px;color:#819ba9}.camera-label{position:absolute;left:12px;top:12px;padding:6px 9px;border-radius:7px;background:#09131bdb;font-size:12px}.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0}.fact{padding:12px;background:#09131b;border-radius:10px}.fact span{display:block;font-size:12px;color:#99afbc}.fact strong{display:block;margin-top:6px;font-size:19px}.actions{display:flex;gap:8px;flex-wrap:wrap}.primary{background:#79e1aa!important;color:#102319!important;border-color:#79e1aa!important;font-weight:750!important}.danger{background:#8b3038!important;border-color:#d4777b!important;color:#fff!important}.qr-row{display:flex;gap:16px;align-items:center}#qr{width:134px;height:134px;border-radius:10px;background:white;padding:4px}a{color:#8ee4c4;overflow-wrap:anywhere}label{display:block;font-size:12px;color:#b9ced9;margin:12px 0 5px}input{width:100%;padding:10px;border:1px solid #3b5260;border-radius:8px;background:#09131b;color:#eef5fa;font:14px system-ui}details summary{cursor:pointer;color:#bed2dd}#notice{min-height:24px;color:#f1c585;font-size:14px;line-height:1.5}.log-card{margin-top:18px}.log-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.log-head .actions button{font-size:12px;padding:8px 10px}pre{min-height:150px;max-height:300px;overflow:auto;border-radius:10px;background:#09131b;padding:14px;font:12px/1.8 ui-monospace,Consolas,monospace;color:#bdd0da;white-space:pre-wrap;overflow-wrap:anywhere}.note{font-size:12px}#cameraMessage{font-size:12px;color:#a9bdca;margin-top:10px}@media(max-width:850px){.layout{grid-template-columns:1fr}.qr-row{align-items:flex-start}.facts{grid-template-columns:repeat(3,1fr)}}@media(max-width:480px){main{width:calc(100% - 24px);padding-top:20px}.card{padding:15px}.nav button{padding:12px 9px}.nav strong{font-size:12px}.facts strong{font-size:16px}.actions button{flex:1}.qr-row{gap:12px}#qr{width:116px;height:116px}.log-head{align-items:flex-start;flex-direction:column}}
+</style></head>
+<body><main>
+<div class="eyebrow">ESP32 · ROBOT CONTROLLER</div><h1>AI · Bám theo mục tiêu</h1><p>Camera iPhone trên xe → WebRTC → YOLOv8n trên laptop → ESP32</p>
+<nav class="nav" aria-label="Chế độ lái"><button id="autoMode"><strong>OBSTACLE AUTO</strong><span>Tự tránh vật cản</span></button><button id="manualMode"><strong>WI-FI MANUAL</strong><span>Điều khiển trực tiếp</span></button><button class="active" aria-current="page" id="aiMode"><strong>AI</strong><span>Camera và bám mục tiêu</span></button></nav>
+<div class="health" aria-live="polite"><span class="badge" id="robotHealth">ESP32 · đang kiểm tra</span><span class="badge" id="cameraHealth">iPhone · chưa kết nối</span><span class="badge" id="modelHealth">YOLOv8n · đang nạp</span><span class="badge" id="modeHealth">Mode thực tế · —</span></div>
+<p id="robotMessage" role="status" hidden></p>
+<p class="note"><a id="robotLink" target="_blank" rel="noreferrer">Mở web điều khiển trực tiếp trên ESP32</a></p>
+<div class="layout"><div class="stack"><section class="card"><h2>Camera trực tiếp</h2><div class="camera"><div class="placeholder" id="cameraPlaceholder" style="white-space:pre-line">Chưa có hình từ iPhone<br><small>Quét QR, bật camera trên Safari để xem hình và mục tiêu</small></div><canvas id="video" width="480" height="640" role="img" aria-label="Hình camera iPhone có kết quả YOLOv8n" hidden></canvas><span class="camera-label" id="liveLabel">CHỜ CAMERA</span></div><div id="cameraMessage">Ảnh mới nhất được xử lý; ảnh cũ không được dùng để điều khiển.</div></section>
+<section class="card"><h2>Trạng thái bám mục tiêu</h2><div class="facts"><div class="fact"><span>Hành vi AI</span><strong id="behavior">Chưa bắt đầu</strong></div><div class="fact"><span>Khoảng cách trước xe</span><strong id="distance">— cm</strong></div><div class="fact"><span>ESP32 xác nhận</span><strong id="actual">—</strong></div></div><p id="reason">Xe chỉ chạy sau khi bấm Bắt đầu bám mục tiêu.</p><p class="note">Giữ hướng trong hai line 35–65% · vượt line: dừng 150 ms rồi xoay · căn giữa 40–60% qua 3 ảnh mới · mất mục tiêu: đứng yên chờ.</p><p class="note">Dừng ở 20 cm · tiến lại khi &gt;25 cm.</p><p id="startHint" class="note" role="status">Đang kiểm tra kết nối xe và camera…</p><div class="actions"><button class="primary" id="start" aria-describedby="startHint" disabled>Bắt đầu bám mục tiêu</button><button id="stop">Dừng AI</button><button class="danger" id="estop">Dừng khẩn cấp</button></div><p id="notice" role="status"></p></section></div>
+<aside class="stack"><section class="card"><h2>Ghép nối iPhone</h2><div class="qr-row"><img id="qr" alt="QR mở trang kết nối camera iPhone"><div><p>Mở Camera iPhone quét QR → mở bằng Safari → Bật camera trước → Cho phép.</p><small id="pairExpiry">Mã có hiệu lực 10 phút</small></div></div><p class="note">iPhone và laptop cùng Wi-Fi. Hoàn tất cài HTTPS bên dưới trong lần đầu. Giữ Safari ở trang camera và màn hình bật.</p><a id="pairLink" target="_blank" rel="noreferrer">Mở trang ghép nối</a><div class="actions"><button id="renew">Tạo QR mới</button><button id="disconnect">Ngắt camera</button></div></section>
+<section class="card"><h2>Cài đặt iPhone lần đầu</h2><p>Safari cần chứng chỉ HTTPS được tin cậy để cấp quyền camera. Chỉ thực hiện một lần cho laptop này.</p><details><summary>Mở QR và hướng dẫn cài HTTPS</summary><div class="qr-row" style="margin-top:16px"><img id="setupQr" width="134" height="134" style="background:white;padding:4px;border-radius:10px" alt="QR cài chứng chỉ HTTPS trên iPhone"><div><a id="setupLink" target="_blank" rel="noreferrer">Mở hướng dẫn trên iPhone</a><p class="note">Tải chứng chỉ → Cài đặt → Cài cấu hình → Cài đặt chung → Giới thiệu → Cài đặt tin cậy chứng nhận → Bật tin cậy hoàn toàn.</p></div></div><label>SHA-256 của CA · đối chiếu trước khi cài</label><p id="fingerprint" class="note" style="overflow-wrap:anywhere"></p><p id="certExpiry" class="note"></p></details></section>
+<section class="card"><h2>Kết nối và hiệu chỉnh</h2><form id="configForm"><label for="robotUrl">Địa chỉ ESP32 hoặc Webots</label><input id="robotUrl" required type="url" placeholder="http://192.168.1.100"><label for="publicUrl">Địa chỉ HTTPS laptop cho QR (khớp chứng chỉ)</label><input id="publicUrl" type="url" placeholder="https://IP-laptop:8090"><p class="note">Đi thẳng 50% PWM. Xoay tại chỗ tối đa 50% PWM, giảm về 40% khi gần vùng giữa. Sau xác nhận dừng, chờ ít nhất 150 ms và ảnh mới trước khi xoay.</p><div class="actions"><button type="submit">Lưu cấu hình</button></div></form><p class="note">Model phát hiện lớp target. Khi có nhiều vật giống nhau, khóa lại chưa xác nhận được danh tính vật ban đầu.</p></section></aside></div>
+<section class="card log-card"><div class="log-head"><h2>Nhật ký hành vi AI</h2><div class="actions"><button id="clear">Xóa hiển thị</button><button id="download">Tải log</button></div></div><pre id="log" aria-live="polite">Đang tải trạng thái…</pre></section>
+</main><script>
+(() => {
+  const token = '__UI_TOKEN__', byId = id => document.getElementById(id);
+  const states = {IDLE:'Chưa bắt đầu',WAIT_TARGET:'Chờ mục tiêu',TRACK:'Đang bám',STOPPING:'Dừng trước khi xoay',ALIGN:'Xoay căn giữa',CENTERING:'Xác nhận căn giữa',DISTANCE_HOLD:'Giữ 20 cm',SENSOR_HOLD:'Chờ cảm biến khoảng cách',LOST:'Mất mục tiêu · đứng yên chờ',FAULT:'Đã dừng do lỗi'};
+  const movements = {STOPPED:'Đã dừng',FORWARD:'Đang tiến',LEFT:'Quay trái',RIGHT:'Quay phải',BACKWARD:'Đang lùi'};
+  const previewMaxAge = 500;
+  let previewProblem = '';
+  let loaded = false, busy = false, hiddenId = 0, lastEventId = 0, pair = '', streaming = false, dirty = false, lastPaintAt = 0, imageRequest = null, imageGeneration = 0, latestState = null;
+  async function api(path, data) {
+    const response = await fetch(path,{method:data === undefined?'GET':'POST',headers:{'X-UI-Token':token,'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data),signal:AbortSignal.timeout(5000),cache:'no-store'});
+    const result = await response.json(); if(!response.ok) throw new Error(result.error || 'Không thực hiện được'); return result;
+  }
+  async function act(path, data={}) {
+    if(busy && path!=='/api/estop') return; busy = true;
+    try {const result = await api(path,data); byId('notice').textContent = result.message || 'Đã thực hiện'; return result;}
+    catch(error){byId('notice').textContent = error.message;} finally {busy=false;}
+  }
+  function badge(id,text,ok){const node=byId(id);node.textContent=text;node.className='badge '+(ok?'ok':'bad');}
+  function renderStart(s){
+    const blocked=!s||dirty||s.active||!s.model_ready||!s.inference_ready||!s.camera_ready||!s.robot_online;
+    byId('start').disabled=blocked;
+    const missing=[];
+    if(!s)missing.push('Chưa kết nối được ứng dụng laptop. Tải lại trang hoặc kiểm tra web AI đang chạy.');
+    else if(s.active)missing.push('AI đang hoạt động. Bấm Dừng AI để kết thúc phiên.');
+    else{
+      if(dirty)missing.push('Bấm Lưu cấu hình để áp dụng địa chỉ xe.');
+      if(!s.robot_online)missing.push('Chưa kết nối được ESP32. Kiểm tra địa chỉ xe trong Kết nối và hiệu chỉnh.');
+      if(!s.model_ready)missing.push(s.model_error||'Đang chờ YOLOv8n sẵn sàng.');
+      if(!s.camera_ready)missing.push(s.camera_connected?'Giữ Safari mở trên iPhone và chờ hình camera mới.':'Quét QR bằng iPhone, mở Safari rồi bấm Bật camera trước.');
+      else if(s.model_ready&&!s.inference_ready)missing.push('Đang chờ kết quả nhận diện mới từ camera.');
+    }
+    const hint=missing.length?missing.join(' '):'Xe, camera và YOLOv8n đã sẵn sàng. Có thể bắt đầu bám mục tiêu.';
+    byId('startHint').textContent=hint;byId('start').title=hint;
+  }
+  function resetStream(){
+    streaming=false;++imageGeneration;if(imageRequest)imageRequest.abort();imageRequest=null;
+    byId('video').hidden=true;byId('cameraPlaceholder').hidden=false;lastPaintAt=0;
+  }
+  async function decodeFrame(blob){
+    if(typeof createImageBitmap==='function'){
+      try{return await createImageBitmap(blob);}catch(_){}
+    }
+    const url=URL.createObjectURL(blob),image=new Image();
+    try{
+      await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=()=>reject(new Error('Không giải mã được ảnh camera'));image.src=url;});
+      return image;
+    }finally{URL.revokeObjectURL(url);}
+  }
+  async function viewFrames(){
+    if(streaming)return;
+    streaming=true;const generation=++imageGeneration;let lastFrame='';
+    while(streaming&&generation===imageGeneration){
+      const started=performance.now(),controller=new AbortController();imageRequest=controller;
+      const timer=setTimeout(()=>controller.abort(),3000);
+      try{
+        const response=await fetch('/frame.jpg?after='+lastFrame,{headers:{'X-UI-Token':token},cache:'no-store',signal:controller.signal});
+        if(response.status!==204){
+          if(!response.ok)throw new Error('Không tải được ảnh camera');
+          const blob=await response.blob();if(generation!==imageGeneration)break;
+          const age=Number(response.headers.get('X-Frame-Age-Ms'));
+          if(!Number.isFinite(age)||age<0||age+performance.now()-started>previewMaxAge)throw new Error('Ảnh quá cũ');
+          // Decode off-screen and paint once: never clear the visible frame while loading.
+          const bitmap=await decodeFrame(blob);
+          try{
+            if(generation!==imageGeneration)break;
+            const now=performance.now(),receivedAt=started-age;
+            if(now-receivedAt>previewMaxAge)throw new Error('Ảnh quá cũ');
+            const canvas=byId('video');
+            if(canvas.width!==bitmap.width||canvas.height!==bitmap.height){canvas.width=bitmap.width;canvas.height=bitmap.height;}
+            canvas.getContext('2d').drawImage(bitmap,0,0);canvas.hidden=false;byId('cameraPlaceholder').hidden=true;lastPaintAt=receivedAt;previewProblem='';
+            lastFrame=response.headers.get('X-Frame-Id')||'';
+          }finally{bitmap.close?.();}
+        }
+      }catch(error){if(error.name!=='AbortError'&&error.message!=='Ảnh quá cũ')previewProblem='Chưa hiển thị được camera: '+error.message;}
+      finally{clearTimeout(timer);if(imageRequest===controller)imageRequest=null;}
+      if(generation===imageGeneration)await new Promise(resolve=>setTimeout(resolve,Math.max(0,67-(performance.now()-started))));
+    }
+  }
+  async function poll(){
+    try{
+      const s=await api('/api/state');latestState=s;
+      badge('robotHealth','ESP32 · '+(s.robot_online?'đã kết nối':'mất kết nối'),s.robot_online);
+      badge('cameraHealth','iPhone · '+(s.camera_ready?'đang phát':'chưa có hình mới'),s.camera_ready);
+      badge('modelHealth','YOLOv8n · '+(s.model_ready?'sẵn sàng':'chưa sẵn sàng'),s.model_ready);
+      byId('robotMessage').textContent=s.robot_error||'';byId('robotMessage').hidden=s.robot_online||!s.robot_error;
+      byId('modeHealth').textContent='Mode thực tế · '+(s.robot_online?s.robot?.drive_mode:'không rõ');
+      if(!loaded){
+        const requested=new URLSearchParams(location.search).get('robot');
+        byId('robotUrl').value=requested||s.config.robot_url;byId('publicUrl').value=s.config.public_url;loaded=true;
+        if(requested && requested!==s.config.robot_url){dirty=true;byId('notice').textContent='Đã điền địa chỉ xe từ trang điều khiển. Bấm Lưu cấu hình để sử dụng.';}
+      }else if(!dirty){
+        byId('robotUrl').value=s.config.robot_url;byId('publicUrl').value=s.config.public_url;
+      }
+      byId('robotLink').href=s.config.robot_url;
+      const lock=s.active; for(const id of ['robotUrl','publicUrl'])byId(id).disabled=lock;
+      byId('disconnect').disabled=!s.camera_connected;
+      renderStart(s);
+      byId('stop').disabled=!lock;
+      const d=s.decision;byId('behavior').textContent=states[d.state]||d.state;byId('reason').textContent=d.reason;
+      const distance=s.robot?.distance_cm;byId('distance').textContent=s.robot_online&&distance>=2&&distance<=400?distance+' cm':s.robot_online&&s.robot?.ai_active?'Lỗi cảm biến':'— cm';byId('actual').textContent=s.robot_online?(movements[s.robot?.movement]||'—'):'Không rõ';
+      byId('liveLabel').textContent=s.camera_ready?'CAMERA TRỰC TIẾP':s.camera_connected?'ĐANG CHỜ HÌNH MỚI':'CHỜ CAMERA';
+      byId('cameraPlaceholder').textContent=s.camera_connected?'Luồng camera đang kết nối\nĐang chờ hình mới; giữ Safari mở trên iPhone':s.camera_error||'Quét QR và bật camera trên Safari';
+      byId('cameraMessage').textContent=previewProblem||s.model_error||s.camera_error||(s.inference_ready?'YOLOv8n · '+(s.detection?.inference_ms||0)+' ms · tuổi ảnh nhận '+s.frame_age_ms+' ms (không phải trễ từ lúc chụp)':'Đang chờ kết quả AI mới');
+      if(s.camera_connected&&!streaming){viewFrames();}else if(!s.camera_connected&&streaming)resetStream();
+      if(pair!==s.pair_url){pair=s.pair_url;byId('qr').src='/qr.png?key='+token+'&t='+Date.now();byId('pairLink').href=pair;}
+      byId('setupQr').src ||= '/qr.png?key='+token+'&setup=1';byId('setupLink').href=s.https.setup_url;byId('fingerprint').textContent=s.https.fingerprint;byId('certExpiry').textContent='Chứng chỉ server hết hạn: '+new Date(s.https.expires).toLocaleDateString('vi-VN')+' · Đổi IP laptop: chạy lại setup.ps1 rồi mở lại server.';
+      byId('pairExpiry').textContent=s.pair_remaining?'QR còn '+Math.ceil(s.pair_remaining/60)+' phút':'QR hết hạn · tạo mã mới';
+      const newest=s.events.at(-1)?.id||0;if(newest<lastEventId)hiddenId=0;lastEventId=newest;
+      byId('log').textContent=s.events.filter(e=>e.id>hiddenId).map(e=>'['+e.time.slice(11,19)+'] ['+e.kind+'] '+e.message).join('\n')||'Chưa có sự kiện.';byId('log').scrollTop=byId('log').scrollHeight;
+    }catch(error){latestState=null;badge('robotHealth','Mất kết nối ứng dụng laptop',false);renderStart(null);byId('actual').textContent='Không rõ';byId('notice').textContent=error.message;}
+    setTimeout(poll,500);
+  }
+  byId('configForm').addEventListener('input',()=>{dirty=true;renderStart(latestState);});
+  byId('configForm').addEventListener('submit',async event=>{event.preventDefault();const saved=await act('/api/config',{robot_url:byId('robotUrl').value,public_url:byId('publicUrl').value});if(saved){dirty=false;renderStart(latestState);}});
+  byId('disconnect').addEventListener('click',()=>act('/api/camera/disconnect'));byId('start').addEventListener('click',()=>act('/api/start'));byId('stop').addEventListener('click',()=>act('/api/stop'));byId('estop').addEventListener('click',()=>act('/api/estop'));byId('renew').addEventListener('click',()=>act('/api/pair/renew'));
+  for(const [id,mode]of [['autoMode','AUTO'],['manualMode','MANUAL']])byId(id).addEventListener('click',async()=>{if(dirty){byId('notice').textContent='Lưu cấu hình kết nối trước khi chuyển mode.';return;}const result=await act('/api/mode',{mode});if(result)location.href=result.robot_url;});
+  byId('clear').addEventListener('click',()=>{hiddenId=lastEventId;byId('log').textContent='Chưa có sự kiện.';});
+  byId('download').addEventListener('click',async()=>{try{const response=await fetch('/api/logs',{headers:{'X-UI-Token':token}});if(!response.ok)throw new Error('Không tải được log');const url=URL.createObjectURL(await response.blob());const a=document.createElement('a');a.href=url;a.download='ai-events.jsonl';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){byId('notice').textContent=error.message;}});
+  setInterval(()=>{if(lastPaintAt&&performance.now()-lastPaintAt>previewMaxAge){byId('video').hidden=true;byId('cameraPlaceholder').hidden=false;}},100);
+  poll();
+})();
+</script></body></html>

@@ -68,7 +68,7 @@ captured_at phải dùng time.monotonic() trên cùng máy/quá trình, không d
 - linear_velocity luôn 0.0 m/s.
 - Camera phải hướng về trước, ảnh không bị mirror. Nếu ảnh bị lật ngang cần sửa ảnh hoặc ánh xạ chiều quay tương ứng.
 
-Ví dụ ảnh rộng 640: hai đường cam ở x = 288 px và 352 px, đường giữa ở x = 320 px. Bắt đầu quay ngay tại khung hình có tâm thực vượt một đường cam; dừng khi tâm thực về trong 19.2 px so với giữa ảnh. Khi đang STOP, vùng giữa hai ngưỡng không làm robot quay lại. Nếu tâm thực vào vùng dừng, dừng ngay để tránh quay vượt do bộ lọc còn giữ sai số cũ.
+Cấu hình mặc định hiện tại: biên ±15%, vùng dừng căn tâm ±10%. Ví dụ ảnh rộng 640: hai đường cam ở x = 224 px và 416 px, đường giữa ở x = 320 px. Bắt đầu yêu cầu căn khi tâm thực vượt một đường cam; kết thúc yêu cầu quay khi tâm thực về trong 64 px so với giữa ảnh. Khi đang STOP, vùng giữa hai ngưỡng không làm robot quay lại. Nếu tâm thực vào vùng dừng, dừng ngay để tránh quay vượt do bộ lọc còn giữ sai số cũ.
 
 Dùng tâm chưa làm mượt để quyết định bắt đầu/dừng và chiều quay. EMA alpha 0.4 chỉ làm mượt độ lớn tốc độ quay, không trì hoãn lệnh lúc vượt ngưỡng. Tốc độ quay tỷ lệ với độ lệch, giới hạn 0.08 đến 0.6 rad/s. Khi tâm đổi sang phía đối diện, xóa độ trễ dấu của bộ lọc. Khi mất mục tiêu, ảnh cũ quá 0.5 giây hoặc frame trùng/sai thứ tự, trả STOP.
 
@@ -97,7 +97,7 @@ Có thể ghi đè cấu hình khi khởi tạo:
 from target_alignment import AlignmentConfig
 ai = TargetAI(
     weights="best.onnx",
-    alignment=AlignmentConfig(start_threshold=0.06, stop_threshold=0.03),
+    alignment=AlignmentConfig(start_threshold=0.15, stop_threshold=0.10),
 )
 ~~~
 
@@ -118,10 +118,20 @@ Với camera iPhone, chạy lại phone_camera.py theo CAMERA_IPHONE.md để n�
 
 ## Hai đường ngưỡng trực quan
 
-Hai đường màu cam nằm tại 45% và 55% chiều rộng ảnh; đường giữa màu xanh ở 50%. Tọa độ được tính trên ảnh camera nguyên gốc, không phải ảnh letterbox 640 của model. Ví dụ ảnh 1280 px có đường trái 576, giữa 640 và phải 704.
+Hai đường màu cam mặc định nằm tại 35% và 65% chiều rộng ảnh; đường giữa màu xanh ở 50%. Tọa độ được tính trên ảnh camera nguyên gốc, không phải ảnh letterbox 640 của model. Ví dụ ảnh 1280 px có đường trái 448, giữa 640 và phải 832.
 
-Tâm nhỏ hơn ngưỡng trái: TURN_LEFT. Tâm lớn hơn ngưỡng phải: TURN_RIGHT. Chạm đúng đường chưa được coi là vượt. Khi đang quay, tiếp tục căn đến vùng dừng +/-3%; khi đang STOP, tâm nằm giữa hai đường không khởi động quay mới. Quyết định dựa trên tâm thực trên mỗi khung mới sau detect/NMS. Callback điều khiển được gọi trước bước vẽ ảnh.
+Tâm nhỏ hơn ngưỡng trái: TURN_LEFT. Tâm lớn hơn ngưỡng phải: TURN_RIGHT. Chạm đúng đường chưa được coi là vượt. Khi đang quay, tiếp tục căn đến vùng dừng +/-10%; khi đang STOP, tâm nằm giữa hai đường không khởi động quay mới. Quyết định dựa trên tâm thực trên mỗi khung mới sau detect/NMS. Callback điều khiển được gọi trước bước vẽ ảnh.
 
 ONNX kèm metadata target_alignment_policy=raw_center_hysteresis_v2. Logic mới và việc vẽ ba đường vẫn chạy trong target_alignment.py; khi đưa model sang project chính, cập nhật cả robot_ai.py và target_alignment.py cùng model. Không chỉ thay model rồi giữ mã căn tâm cũ.
 
 Đã kiểm tra phản ứng ngay ở khung vượt ngưỡng dù smoothing alpha rất nhỏ, giữ hysteresis, đúng dấu quay, các đường vẽ đúng tỷ lệ ở nhiều kích thước, và STOP khi mất/stale ảnh.
+
+## Điều khiển từ ứng dụng iPhone trong ESP32_IoT
+
+`ai/service.py` truyền `AlignmentConfig()` rõ ràng (±15%/±10%), ghi đè metadata căn tâm cũ của ONNX. `ai/follower.py` quyết định chuyển động: giữ hướng trong hai line; vượt line thì dừng, chờ xác nhận STOPPED ít nhất 150 ms và ảnh mới rồi xoay tại chỗ. Khi căn đến vùng tâm, dừng quay, xác nhận 3 ảnh mới liên tiếp rồi tiến lại. Mất mục tiêu thì đứng yên chờ, không quay tìm. API TargetAI ở trên chỉ trả yêu cầu căn tâm; Follower thực hiện chu trình dừng/quay/tiến.
+
+## Ổn định box và liên kết mục tiêu
+
+TargetAI dùng confidence 0,25 để nhận mục tiêu mới, 0,15 để giữ một box khớp vị trí đã theo (IoU >=0,2; diện tích mới bằng 0,5–2 lần box cũ). Liên kết vị trí tồn tại tối đa 250 ms tính từ lần detect thật cuối cùng. Một ảnh mất detect vẫn trả found=False/STOP, không giả lập số đo để lái. Sau khi liên kết hết hạn, vật mới phải đạt ngưỡng nhận mới.
+
+AlignmentResult bổ sung target_id, box_xyxy (box mới đo), display_box_xyxy (box làm mượt để vẽ). Chỉ vẽ box được chọn; chuyển động lớn cập nhật box ngay để tránh kéo bóng. Tâm và ngưỡng điều khiển vẫn dựa trên box mới đo. Follower xác nhận lại khi target_id thay đổi. ID là liên kết ngắn hạn theo vị trí, chưa bảo đảm danh tính của vật sau khi khuất hoặc đổi cảnh.

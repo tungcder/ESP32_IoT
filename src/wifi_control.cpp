@@ -12,6 +12,8 @@
 #include "wifi_control.h"
 #include "robot_status.h"
 #include "servo_scan.h"
+#include "ai_control.h"
+#include <limits.h>
 
 namespace {
   WebServer server(80);
@@ -19,33 +21,99 @@ namespace {
   unsigned long lastWiFiStatusMs = 0;
   constexpr unsigned long WIFI_STATUS_INTERVAL_MS = 5000;
 
+  bool number(const String& value, uint32_t& result) {
+    if (!value.length() || value.length() > 10) return false;
+    uint64_t total = 0;
+    for (size_t i = 0; i < value.length(); ++i) {
+      if (value[i] < '0' || value[i] > '9') return false;
+      total = total * 10 + value[i] - '0';
+      if (total > UINT32_MAX) return false;
+    }
+    result = static_cast<uint32_t>(total);
+    return true;
+  }
+
+  bool currentEpoch() {
+    uint32_t epoch;
+    if (!number(server.header("X-Mode-Epoch"), epoch) || epoch != getModeEpoch()) {
+      server.send(409, "text/plain", "Stale or missing mode epoch; reload status");
+      return false;
+    }
+    return true;
+  }
+
+  void handleAIClaim() {
+    if (!currentEpoch()) return;
+    if (aiControlActive()) { server.send(409, "text/plain", "AI owner already active"); return; }
+    setDriveMode(DriveMode::AI);
+    const String session = beginAIControl();
+    server.send(200, "application/json", "{\"session\":\"" + session + "\",\"mode_epoch\":" + String(getModeEpoch()) + "}");
+  }
+
+  void handleAICommand() {
+    uint32_t sequence, speed;
+    const String movement = server.arg("movement");
+    RobotMovement value;
+    if (movement == "FORWARD") value = RobotMovement::Forward;
+    else if (movement == "LEFT") value = RobotMovement::Left;
+    else if (movement == "RIGHT") value = RobotMovement::Right;
+    else if (movement == "STOPPED") value = RobotMovement::Stopped;
+    else { server.send(400, "text/plain", "Invalid AI movement"); return; }
+    const uint8_t limit = value == RobotMovement::Left || value == RobotMovement::Right
+                            ? Config::MOTOR_TURN_SPEED_PERCENT : Config::MOTOR_SPEED_PERCENT;
+    if (!number(server.arg("seq"), sequence) || !number(server.arg("speed"), speed) || speed > limit) {
+      server.send(400, "text/plain", "Invalid sequence or speed"); return;
+    }
+    if (!acceptAICommand(server.arg("session"), sequence, value, speed)) {
+      server.send(409, "text/plain", "Expired AI session or stale sequence"); return;
+    }
+    server.send(200, "application/json", robotStatusJson());
+  }
+
+  void handleAIRelease() {
+    if (!ownsAIControl(server.arg("session"))) { server.send(409, "text/plain", "AI session no longer owned"); return; }
+    stopCar();
+    invalidateAIControl();
+    recordRobotEvent("AI session ended");
+    server.send(200, "text/plain", "AI STOPPED");
+  }
+
+  void handleEmergencyStop() {
+    setDriveMode(DriveMode::Manual);
+    setServoAngle(90);
+    recordRobotEvent("Emergency stop; all ownership revoked");
+    server.send(200, "text/plain", "EMERGENCY STOP");
+  }
+
   void handleGamepad() {
-  if (getDriveMode() != DriveMode::Manual) {
-    server.send(409, "text/plain", "AUTO mode active");
-    return;
+    if (!currentEpoch()) return;
+    if (getDriveMode() != DriveMode::Manual) {
+      server.send(409, "text/plain", "AUTO mode active");
+      return;
+    }
+
+    if (!server.hasArg("left") || !server.hasArg("right")) {
+      stopCar();
+      server.send(400, "text/plain", "Missing motor values");
+      return;
+    }
+
+    int left = server.arg("left").toInt();
+    int right = server.arg("right").toInt();
+
+    if (left < -100 || left > 100 ||
+        right < -100 || right > 100) {
+      stopCar();
+      server.send(400, "text/plain", "Invalid motor values");
+      return;
+    }
+
+    setMotorSpeeds(left, right);
+    resetCommandTimer();
+
+    server.send(200, "text/plain", "GAMEPAD OK");
   }
 
-  if (!server.hasArg("left") || !server.hasArg("right")) {
-    stopCar();
-    server.send(400, "text/plain", "Missing motor values");
-    return;
-  }
-
-  int left = server.arg("left").toInt();
-  int right = server.arg("right").toInt();
-
-  if (left < -100 || left > 100 ||
-      right < -100 || right > 100) {
-    stopCar();
-    server.send(400, "text/plain", "Invalid motor values");
-    return;
-  }
-
-  setMotorSpeeds(left, right);
-  resetCommandTimer();
-
-  server.send(200, "text/plain", "GAMEPAD OK");
-}
   void onWiFiDisconnected(WiFiEvent_t, WiFiEventInfo_t info) {
     const uint8_t reason = info.wifi_sta_disconnected.reason;
     Serial.printf("\n[Wi-Fi] Disconnected | reason: %u\n", reason);
@@ -105,6 +173,7 @@ namespace {
   }
 
   void handleForward() {
+    if (!currentEpoch()) return;
     if (getDriveMode() != DriveMode::Manual) { server.send(409, "text/plain", "AUTO mode active"); return; }
     moveForward();
     resetCommandTimer();
@@ -112,6 +181,7 @@ namespace {
   }
 
   void handleBackward() {
+    if (!currentEpoch()) return;
     if (getDriveMode() != DriveMode::Manual) { server.send(409, "text/plain", "AUTO mode active"); return; }
     moveBackward();
     resetCommandTimer();
@@ -119,6 +189,7 @@ namespace {
   }
 
   void handleLeft() {
+    if (!currentEpoch()) return;
     if (getDriveMode() != DriveMode::Manual) { server.send(409, "text/plain", "AUTO mode active"); return; }
     turnLeft();
     resetCommandTimer();
@@ -126,6 +197,7 @@ namespace {
   }
 
   void handleRight() {
+    if (!currentEpoch()) return;
     if (getDriveMode() != DriveMode::Manual) { server.send(409, "text/plain", "AUTO mode active"); return; }
     turnRight();
     resetCommandTimer();
@@ -133,6 +205,7 @@ namespace {
   }
 
   void handleStop() {
+    if (!currentEpoch()) return;
     if (getDriveMode() != DriveMode::Manual) { server.send(409, "text/plain", "AUTO mode active"); return; }
     stopCar();
     resetCommandTimer();
@@ -140,21 +213,23 @@ namespace {
   }
 
   void handleDriveAuto() {
+    if (!currentEpoch()) return;
     stopCar();
     setupObstacleAvoidance();
     setDriveMode(DriveMode::Auto);
     recordRobotEvent("Obstacle Auto selected");
     resetCommandTimer();
-    server.send(200, "text/plain", "DRIVE AUTO");
+    server.send(200, "application/json", robotStatusJson());
   }
 
   void handleDriveManual() {
+    if (!currentEpoch()) return;
     stopCar();
     setDriveMode(DriveMode::Manual);
     setServoAngle(90);
     recordRobotEvent("Wi-Fi Manual selected");
     resetCommandTimer();
-    server.send(200, "text/plain", "DRIVE MANUAL");
+    server.send(200, "application/json", robotStatusJson());
   }
 
   void handleStatus() {
@@ -204,6 +279,12 @@ void setupWiFiAndServer() {
   server.on("/driveauto", HTTP_GET, handleDriveAuto);
   server.on("/drivemanual", HTTP_GET, handleDriveManual);
   server.on("/status", HTTP_GET, handleStatus);
+  const char* headers[] = {"X-Mode-Epoch"};
+  server.collectHeaders(headers, 1);
+  server.on("/ai/claim", HTTP_POST, handleAIClaim);
+  server.on("/ai/command", HTTP_POST, handleAICommand);
+  server.on("/ai/release", HTTP_POST, handleAIRelease);
+  server.on("/estop", HTTP_POST, handleEmergencyStop);
 
   server.begin();
   Serial.println("Web server started on port 80; accessible when Wi-Fi is connected.");

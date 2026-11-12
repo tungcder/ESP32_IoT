@@ -25,7 +25,10 @@ const char webpage[] PROGMEM = R"rawliteral(
   .connection { flex: none; border-radius: 99px; padding: 7px 11px; color: #102319; background: #79e1aa; font-size: 12px; font-weight: 800; }
   .connection.offline { background: #eaa273; color: #29150e; }
   .section-label { margin: 27px 0 12px; }
-  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  input { width: 100%; margin: 12px 0; padding: 12px; border: 1px solid #49606b; border-radius: 9px; background: #09131b; color: white; font: inherit; }
+  .action { display: inline-block; margin-top: 12px; padding: 12px; border: 1px solid #72dcb7; border-radius: 9px; color: white; background: #1c493f; font: inherit; text-decoration: none; }
+  .emergency { display: block; width: 100%; margin-top: 18px; padding: 12px; border: 1px solid #d4777b; border-radius: 12px; background: #8b3038; color: white; }
   .mode-btn { text-align: left; padding: 17px; border: 1px solid #334954; border-radius: 16px; color: #c4d5de; background: #14232c; }
   .mode-btn.active { border-color: #72dcb7; color: white; background: #1c493f; box-shadow: inset 0 0 0 1px #72dcb7; }
   .mode-btn strong, .mode-btn span { display: block; }
@@ -68,6 +71,7 @@ const char webpage[] PROGMEM = R"rawliteral(
   <nav class="modes" aria-label="Chế độ lái">
     <button class="mode-btn" id="driveAutoMode" type="button" aria-pressed="false"><strong>OBSTACLE AUTO</strong><span>Tự tránh vật cản</span></button>
     <button class="mode-btn" id="driveManualMode" type="button" aria-pressed="false"><strong>WI-FI MANUAL</strong><span>Điều khiển trực tiếp</span></button>
+    <button class="mode-btn" id="driveAIMode" type="button" aria-pressed="false"><strong>AI</strong><span>Camera và bám mục tiêu</span></button>
   </nav>
   <section class="card" id="autoPanel" hidden>
     <h2>Xe đang tự lái</h2>
@@ -86,8 +90,17 @@ const char webpage[] PROGMEM = R"rawliteral(
     </div>
     <p class="hint">Có thể dùng phím mũi tên · Space hoặc Esc để dừng</p>
   </section>
+  <section class="card" id="aiPanel" hidden>
+    <h2>AI · YOLOv8n</h2>
+    <p>Mở bảng AI trên laptop để ghép nối iPhone, xem camera iPhone qua WebRTC và bám mục tiêu. Mở bảng này chưa kích hoạt xe.</p>
+    <label for="aiServer">Địa chỉ bảng AI trên laptop</label>
+    <input id="aiServer" type="url" placeholder="https://IP-laptop:8090" value="https://127.0.0.1:8090">
+    <button class="action" id="openAI" type="button">Mở camera, QR và log AI</button>
+    <p id="aiHint">Chạy ai/run.ps1 trên laptop trước khi mở.</p>
+  </section>
+  <button class="emergency" id="emergencyStop" type="button">DỪNG KHẨN CẤP · MỌI MODE</button>
   <section class="card" aria-label="Nhật ký hoạt động">
-    <div class="log-head"><h2>Nhật ký xe</h2><button id="clearLog" type="button">Xóa hiển thị</button></div>
+    <div class="log-head"><h2 id="logTitle">Nhật ký xe</h2><button id="clearLog" type="button">Xóa hiển thị</button></div>
     <pre class="log" id="log" aria-live="polite">Đang tải trạng thái…</pre>
   </section>
 </main>
@@ -97,18 +110,25 @@ const char webpage[] PROGMEM = R"rawliteral(
   const directions = ['forward', 'backward', 'left', 'right'];
   const labels = {STOPPED: 'Đã dừng', FORWARD: 'Đang tiến', BACKWARD: 'Đang lùi', LEFT: 'Đang rẽ trái', RIGHT: 'Đang rẽ phải'};
   let mode = null, held = null, heartbeat = null, pending = null, sending = false, switching = false;
-  let latestId = 0, hiddenThrough = 0, lastUptime = null, modeRevision = 0;
-  const lines = [];
+  let latestId = 0, lastUptime = null, modeRevision = 0;
+  let modeEpoch = null, bootId = null, viewingAI = false;
+  const logs = {AUTO: [], MANUAL: [], AI: []};
+  const hiddenIds = {AUTO: 0, MANUAL: 0, AI: 0};
+  const logMode = () => viewingAI ? 'AI' : (mode || 'MANUAL');
 
   function showMode(value) {
     mode = value;
     const auto = value === 'AUTO';
-    byId('autoPanel').hidden = !auto;
-    byId('manualPanel').hidden = auto;
-    byId('driveAutoMode').classList.toggle('active', auto);
-    byId('driveManualMode').classList.toggle('active', !auto);
-    byId('driveAutoMode').setAttribute('aria-pressed', String(auto));
-    byId('driveManualMode').setAttribute('aria-pressed', String(!auto));
+    const ai = viewingAI || value === 'AI';
+    byId('autoPanel').hidden = ai || !auto;
+    byId('manualPanel').hidden = ai || value !== 'MANUAL';
+    byId('aiPanel').hidden = !ai;
+    for (const [id, selected] of [['driveAutoMode', !ai && auto], ['driveManualMode', !ai && value === 'MANUAL'], ['driveAIMode', ai]]) {
+      byId(id).classList.toggle('active', selected);
+      byId(id).setAttribute('aria-pressed', String(selected));
+      byId(id).disabled = id !== 'driveAIMode' && !['AUTO', 'MANUAL', 'AI'].includes(value);
+    }
+    renderLog();
   }
 
   function clearHold() {
@@ -119,7 +139,7 @@ const char webpage[] PROGMEM = R"rawliteral(
   }
 
   function request(path) {
-    pending = {path, created: Date.now()};
+    pending = {path, created: Date.now(), epoch: modeEpoch, revision: modeRevision};
     pump();
   }
 
@@ -134,14 +154,19 @@ const char webpage[] PROGMEM = R"rawliteral(
         if (isMotion && (mode !== 'MANUAL' || switching || Date.now() - command.created > 400)) continue;
         if (command.path === '/stop' && (mode !== 'MANUAL' || switching)) continue;
         try {
-          const response = await fetch(command.path, {cache: 'no-store', signal: AbortSignal.timeout(1200)});
+          const response = await fetch(command.path, {cache: 'no-store', signal: AbortSignal.timeout(1200), headers: command.epoch === null ? {} : {'X-Mode-Epoch': String(command.epoch)}});
           if (!response.ok) throw new Error('HTTP ' + response.status);
           if (command.path === '/driveauto' || command.path === '/drivemanual') {
+            const confirmed = await response.json();
+            if (command.revision !== modeRevision) continue;
+            if (confirmed.mode_epoch !== undefined) modeEpoch = confirmed.mode_epoch;
             modeRevision++;
+            viewingAI = false;
             showMode(command.path === '/driveauto' ? 'AUTO' : 'MANUAL');
             switching = false;
           }
         } catch (_) {
+          if (command.revision !== modeRevision) continue;
           clearHold();
           switching = false;
           pending = null;
@@ -160,7 +185,7 @@ const char webpage[] PROGMEM = R"rawliteral(
   }
 
   function startMove(direction) {
-    if (mode !== 'MANUAL' || switching || held === direction) return;
+    if (mode !== 'MANUAL' || viewingAI || switching || held === direction) return;
     clearHold();
     held = direction;
     byId(direction).classList.add('active');
@@ -184,14 +209,37 @@ const char webpage[] PROGMEM = R"rawliteral(
   byId('stop').addEventListener('click', () => stopMove(true));
 
   function switchMode(path) {
+    if (viewingAI && ((path === '/driveauto' && mode === 'AUTO') || (path === '/drivemanual' && mode === 'MANUAL'))) {
+      viewingAI = false; showMode(mode); return;
+    }
     if (switching || (path === '/driveauto' && mode === 'AUTO') || (path === '/drivemanual' && mode === 'MANUAL')) return;
     clearHold();
     switching = true;
-    pending = {path, created: Date.now()};
+    pending = {path, created: Date.now(), epoch: modeEpoch, revision: modeRevision};
     pump();
   }
   byId('driveAutoMode').addEventListener('click', () => switchMode('/driveauto'));
   byId('driveManualMode').addEventListener('click', () => switchMode('/drivemanual'));
+  byId('driveAIMode').addEventListener('click', () => {
+    stopMove(); viewingAI = true; showMode(mode);
+  });
+  byId('openAI').addEventListener('click', () => {
+    try {
+      const url = new URL(byId('aiServer').value);
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
+      url.searchParams.set('robot', window.location.origin);
+      window.location.href = url.href;
+    } catch (_) { byId('aiHint').textContent = 'Nhập địa chỉ https://IP-laptop:8090 hợp lệ.'; }
+  });
+  byId('emergencyStop').addEventListener('click', async () => {
+    clearHold(); pending = null; modeRevision++; switching = false;
+    modeEpoch = null; showMode(null);
+    try {
+      const response = await fetch('/estop', {method: 'POST', signal: AbortSignal.timeout(1200)});
+      if (!response.ok) throw new Error();
+      byId('status').textContent = 'Đã gửi dừng khẩn cấp';
+    } catch (_) { byId('status').textContent = 'Chưa xác nhận dừng; kiểm tra kết nối xe'; }
+  });
 
   const keys = {ArrowUp: 'forward', ArrowDown: 'backward', ArrowLeft: 'left', ArrowRight: 'right'};
   document.addEventListener('keydown', event => {
@@ -206,12 +254,14 @@ const char webpage[] PROGMEM = R"rawliteral(
   document.addEventListener('visibilitychange', () => { if (document.hidden && held !== null) stopMove(); });
 
   function renderLog() {
+    const lines = logs[logMode()] || [];
+    byId('logTitle').textContent = 'Nhật ký ' + logMode();
     byId('log').textContent = lines.length ? lines.join('\n') : 'Chưa có sự kiện.';
     byId('log').scrollTop = byId('log').scrollHeight;
   }
   byId('clearLog').addEventListener('click', () => {
-    hiddenThrough = latestId;
-    lines.length = 0;
+    hiddenIds[logMode()] = latestId;
+    (logs[logMode()] || []).length = 0;
     renderLog();
   });
 
@@ -222,14 +272,17 @@ const char webpage[] PROGMEM = R"rawliteral(
       if (!response.ok) throw new Error('HTTP ' + response.status);
       const state = await response.json();
       if (state.uptime_ms !== undefined) {
-        if (lastUptime !== null && state.uptime_ms < lastUptime) {
+        if ((lastUptime !== null && state.uptime_ms < lastUptime) || (bootId !== null && state.boot_id !== bootId)) {
           latestId = 0;
-          hiddenThrough = 0;
-          lines.length = 0;
+          Object.values(logs).forEach(lines => { lines.length = 0; });
+          Object.keys(hiddenIds).forEach(key => { hiddenIds[key] = 0; });
         }
         lastUptime = state.uptime_ms;
+        bootId = state.boot_id;
       }
       if (!switching && revision === modeRevision) {
+        if (modeEpoch !== state.mode_epoch) { clearHold(); pending = null; }
+        modeEpoch = state.mode_epoch;
         if (state.drive_mode !== 'MANUAL') clearHold();
         showMode(state.drive_mode);
       }
@@ -239,14 +292,14 @@ const char webpage[] PROGMEM = R"rawliteral(
       for (const event of state.events || []) {
         if (event.id > latestId) {
           latestId = event.id;
-          if (event.id > hiddenThrough) {
+          if (logs[event.mode] && event.id > hiddenIds[event.mode]) {
             const seconds = Math.floor((event.ms || 0) / 1000);
             const stamp = String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0');
-            lines.push('[' + stamp + '] [' + event.mode + '] ' + event.message);
+            logs[event.mode].push('[' + stamp + '] [' + event.mode + '] ' + event.message);
           }
         }
       }
-      if (lines.length > 60) lines.splice(0, lines.length - 60);
+      Object.values(logs).forEach(lines => { if (lines.length > 60) lines.splice(0, lines.length - 60); });
       renderLog();
     } catch (_) {
       byId('connection').textContent = 'Mất kết nối';

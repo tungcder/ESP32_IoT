@@ -1,7 +1,7 @@
 """Obstacle avoidance matching src/obstacle_avoid.cpp, using simulation time.
 
 The scanner stays centered while driving. After a front obstacle, the robot
-reverses, checks the left at 45/0 degrees, then the right at 135/180 degrees.
+reverses, checks the left at 135/180 degrees, then the right at 45/0 degrees.
 """
 
 import math
@@ -11,7 +11,7 @@ class AutoPilot:
     FRONT_INTERVAL = 0.070
     SERVO_SETTLE = 0.250
     SERVO_CROSS_SETTLE = 0.350
-    def __init__(self, safe_distance, reverse_cm=20, retry_reverse_cm=30,
+    def __init__(self, safe_distance, reverse_cm=8, retry_reverse_cm=12,
                  reverse_ms_per_cm=50, left_90_ms=780, right_90_ms=780):
         self.safe_distance = safe_distance
         self.reverse_cm = reverse_cm
@@ -27,8 +27,8 @@ class AutoPilot:
         self.last_front = now - self.FRONT_INTERVAL
         self.movement = "STOPPED"
         self.angle = 90
-        self.left45_clear = False
-        self.right135_clear = False
+        self.left135_clear = False
+        self.right45_clear = False
         self.reverse_duration = 0
         self.turn_duration = self.left_turn_time
 
@@ -41,7 +41,7 @@ class AutoPilot:
 
     def start_reverse(self, now, distance_cm):
         self.angle = 90
-        self.left45_clear = self.right135_clear = False
+        self.left135_clear = self.right45_clear = False
         self.reverse_duration = distance_cm * self.reverse_ms_per_cm / 1000
         self.movement = "BACKWARD"
         self.enter("Reverse", now)
@@ -65,24 +65,24 @@ class AutoPilot:
                 self.start_reverse(now, self.reverse_cm)
         elif self.state == "Reverse" and elapsed >= self.reverse_duration:
             self.movement = "STOPPED"
-            self.angle = 45
-            self.enter("ScanLeft45", now)
-        elif self.state == "ScanLeft45" and elapsed >= self.SERVO_SETTLE:
-            self.left45_clear = self.clear(distance)
-            self.angle = 0
-            self.enter("ScanLeft0", now)
-        elif self.state == "ScanLeft0" and elapsed >= self.SERVO_SETTLE:
-            if self.left45_clear and self.clear(distance):
+            self.angle = 135
+            self.enter("ScanLeft135", now)
+        elif self.state == "ScanLeft135" and elapsed >= self.SERVO_SETTLE:
+            self.left135_clear = self.clear(distance)
+            self.angle = 180
+            self.enter("ScanLeft180", now)
+        elif self.state == "ScanLeft180" and elapsed >= self.SERVO_SETTLE:
+            if self.left135_clear and self.clear(distance):
                 self.start_turn(now, right=False)
             else:
-                self.angle = 135
-                self.enter("ScanRight135", now)
-        elif self.state == "ScanRight135" and elapsed >= self.SERVO_CROSS_SETTLE:
-            self.right135_clear = self.clear(distance)
-            self.angle = 180
-            self.enter("ScanRight180", now)
-        elif self.state == "ScanRight180" and elapsed >= self.SERVO_SETTLE:
-            right_clear = self.right135_clear and self.clear(distance)
+                self.angle = 45
+                self.enter("ScanRight45", now)
+        elif self.state == "ScanRight45" and elapsed >= self.SERVO_CROSS_SETTLE:
+            self.right45_clear = self.clear(distance)
+            self.angle = 0
+            self.enter("ScanRight0", now)
+        elif self.state == "ScanRight0" and elapsed >= self.SERVO_SETTLE:
+            right_clear = self.right45_clear and self.clear(distance)
             if right_clear:
                 self.start_turn(now, right=True)
             else:

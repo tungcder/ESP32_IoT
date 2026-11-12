@@ -15,7 +15,10 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-from target_alignment import AlignmentConfig, AlignmentResult, TargetAligner, draw_alignment
+if __package__:
+    from .target_alignment import AlignmentConfig, AlignmentResult, TargetAligner, draw_alignment
+else:
+    from target_alignment import AlignmentConfig, AlignmentResult, TargetAligner, draw_alignment
 
 
 @dataclass
@@ -28,12 +31,15 @@ class AIResult:
 
 class TargetAI:
     """Create once per controller, then call process_frame for each new BGR uint8 image."""
-    def __init__(self, weights=None, *, alignment=None, confidence=0.25, iou=0.7, providers=None):
-        self.aligner = TargetAligner(alignment)
+    def __init__(self, weights=None, *, alignment=None, confidence=0.25, iou=0.7, providers=None,
+                 tracking_confidence=None):
         if not 0 <= confidence <= 1 or not 0 <= iou <= 1:
             raise ValueError("confidence and iou must be between 0 and 1.")
         self.confidence, self.iou = confidence, iou
-        path = Path(weights) if weights is not None else Path(__file__).resolve().parent/"exports"/"best.onnx"
+        self.tracking_confidence = min(0.15, confidence) if tracking_confidence is None else tracking_confidence
+        self.aligner = TargetAligner(alignment, confidence=confidence,
+                                     tracking_confidence=self.tracking_confidence)
+        path = Path(weights) if weights is not None else Path(__file__).resolve().parent/"best.onnx"
         if not path.is_file():
             raise FileNotFoundError(f"ONNX model not found: {path}")
         available = ort.get_available_providers()
@@ -56,7 +62,8 @@ class TargetAI:
         self.height, self.width = shape[2:]
         metadata = self.session.get_modelmeta().custom_metadata_map
         if alignment is None and "target_alignment" in metadata:
-            self.aligner = TargetAligner(AlignmentConfig.from_dict(json.loads(metadata["target_alignment"])))
+            self.aligner = TargetAligner(AlignmentConfig.from_dict(json.loads(metadata["target_alignment"])),
+                                         confidence=confidence, tracking_confidence=self.tracking_confidence)
         names = ast.literal_eval(metadata.get("names","{}"))
         self.names = {int(k):v for k,v in names.items()} if isinstance(names,dict) else dict(enumerate(names))
         if self.names.get(self.aligner.config.target_class) != "target":
@@ -87,7 +94,7 @@ class TargetAI:
         class_ids = scores.argmax(axis=1)
         best_scores = scores.max(axis=1)
         keep = ((class_ids == self.aligner.config.target_class) &
-                (best_scores > self.confidence) & np.isfinite(rows).all(axis=1) &
+                (best_scores >= self.tracking_confidence) & np.isfinite(rows).all(axis=1) &
                 (rows[:,2] > 0) & (rows[:,3] > 0))
         rows, best_scores = rows[keep], best_scores[keep]
         if not len(rows):
@@ -95,7 +102,7 @@ class TargetAI:
         order = best_scores.argsort()[::-1][:30000]
         rows,best_scores = rows[order],best_scores[order]
         xywh = np.column_stack((rows[:,0]-rows[:,2]/2,rows[:,1]-rows[:,3]/2,rows[:,2:4]))
-        selected = cv2.dnn.NMSBoxes(xywh.tolist(),best_scores.tolist(),self.confidence,self.iou)
+        selected = cv2.dnn.NMSBoxes(xywh.tolist(),best_scores.tolist(),self.tracking_confidence,self.iou)
         detections = []
         for index in np.asarray(selected,dtype=int).reshape(-1)[:100]:
             x,y,bw,bh = xywh[index]
@@ -146,10 +153,10 @@ class TargetAI:
         annotated = None
         if draw:
             annotated = frame_bgr.copy()
-            for detection in detections:
-                x1,y1,x2,y2 = map(round,detection["xyxy"])
+            if state.found and state.display_box_xyxy is not None:
+                x1,y1,x2,y2 = map(round,state.display_box_xyxy)
                 cv2.rectangle(annotated,(x1,y1),(x2,y2),(70,210,70),2)
-                cv2.putText(annotated,f"target {detection['confidence']:.2f}",(x1,max(15,y1-7)),
+                cv2.putText(annotated,f"target #{state.target_id} {state.confidence:.2f}",(x1,max(15,y1-7)),
                             cv2.FONT_HERSHEY_SIMPLEX,.5,(70,210,70),1,cv2.LINE_AA)
             annotated = draw_alignment(annotated,state,self.aligner.config)
         return AIResult(state,detections,annotated,inference_ms)

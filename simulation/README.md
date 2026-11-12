@@ -45,3 +45,6 @@ trong `src/` và `include/`. Các thư mục firmware không chứa mã Webots.
 
 Chi tiết chạy, kiểm tra và kết nối máy khác qua VPN nằm trong
 [hướng dẫn Webots](webots/README.md).
+
+Webots có giao thức mode AI để laptop nhận camera iPhone qua WebRTC rồi điều khiển mô phỏng.
+Xem [hướng dẫn AI](../ai/README.md) để chạy web camera, QR và log riêng.

@@ -254,3 +254,20 @@ void setMotorSpeeds(int leftPercent, int rightPercent) {
     showMovementLeds(LedDirection::Backward);
   }
 }
+
+void applyAIMovement(RobotMovement movement, uint8_t speedPercent) {
+  const bool turning = movement == RobotMovement::Left || movement == RobotMovement::Right;
+  const uint8_t limit = turning ? Config::MOTOR_TURN_SPEED_PERCENT : Config::MOTOR_SPEED_PERCENT;
+  const uint8_t duty = (255 * min(speedPercent, limit) + 50) / 100;
+  if (!duty || movement == RobotMovement::Stopped) { stopCar(); return; }
+  LedDirection led = LedDirection::Stop;
+  switch (movement) {
+    case RobotMovement::Forward: setMotorPins(1, 0, 1, 0, duty); led = LedDirection::Forward; break;
+    case RobotMovement::Left: setMotorPins(1, 0, 0, 1, duty); led = LedDirection::Left; break;
+    case RobotMovement::Right: setMotorPins(0, 1, 1, 0, duty); led = LedDirection::Right; break;
+    default: stopCar(); return;
+  }
+  moving = true;
+  setRobotMovement(movement);
+  showMovementLeds(led);
+}

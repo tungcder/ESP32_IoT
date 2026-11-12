@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Camera iPhone · ESP32</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,sans-serif;background:#0b1118;color:#eef5fa}*{box-sizing:border-box}body{margin:0}main{max-width:520px;margin:auto;padding:30px 22px}small{color:#78d9bd;letter-spacing:.1em}h1{font-size:32px;line-height:1.2;margin:12px 0}p{color:#adc2cf;line-height:1.6;font-size:15px}.preview{position:relative;aspect-ratio:4/3;background:#061018;border:1px solid #2d424d;border-radius:18px;overflow:hidden;display:grid;place-items:center;margin:22px 0}.preview span{color:#819ba9;font-size:14px}video{position:absolute;width:100%;height:100%;object-fit:contain}video[hidden]{display:none}button{box-sizing:border-box;width:100%;padding:15px;border-radius:12px;font:700 16px system-ui;margin:7px 0;border:0;background:#79e1aa;color:#102319}button:disabled{opacity:.45}button.stop{background:#8b3038;color:#fff}#message{min-height:48px;white-space:pre-wrap}#connection{display:inline-block;padding:7px 11px;background:#203440;border-radius:20px;font-size:12px;color:#bdd0da}.help{padding:15px;border-radius:12px;background:#14232c;font-size:13px;line-height:1.7;color:#b9cbd6}
+</style></head><body><main>
+<small>ESP32 · CAMERA IPHONE</small><h1>Truyền hình về laptop</h1><p>Bấm bật camera, chọn <b>Cho phép</b> khi Safari hỏi. Hình sẽ xuất hiện trên laptop.</p>
+<span id="connection" role="status">Chưa bật camera</span>
+<div class="preview"><span>Camera trước của iPhone</span><video id="preview" autoplay muted playsinline hidden></video></div>
+<button id="start">Bật camera trước</button><button id="stop" class="stop" disabled>Dừng camera</button>
+<p id="message" role="status">Cho iPhone và laptop vào cùng mạng Wi-Fi. Quét QR chỉ kết nối camera; xe chạy khi bật bám mục tiêu trên laptop.</p>
+<div class="help">Giữ Safari ở trang này và màn hình bật khi chạy xe. Khóa màn hình hoặc chuyển ứng dụng sẽ ngắt camera và dừng phiên AI. Khi kết nối lại, quét QR mới trên laptop.</div>
+</main><script>
+(() => {
+  const token='__PAIR_TOKEN__', byId=id=>document.getElementById(id);
+  let stream=null, pc=null, owner=null, wake=null, poll=null, attempt=0, abort=null, disconnectTimer=null;
+  const message=text=>{byId('message').textContent=text;};
+  async function post(path,data,signal){
+    const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),signal:signal||AbortSignal.timeout(5000),cache:'no-store'});
+    const body=await response.json();if(!response.ok){const error=new Error(body.error||'Không kết nối được laptop.');error.status=response.status;throw error;}return body;
+  }
+  async function screenOn(){
+    try{if('wakeLock' in navigator)wake=await navigator.wakeLock.request('screen');}catch(_){}
+  }
+  async function stop(reason='Đã dừng camera. Quét QR mới trên laptop để kết nối lại.', notify=true){
+    ++attempt; if(disconnectTimer)clearTimeout(disconnectTimer);disconnectTimer=null; if(abort)abort.abort();abort=null;
+    if(poll)clearInterval(poll);poll=null;
+    const previous=owner;owner=null;
+    const oldPc=pc;pc=null;if(oldPc)oldPc.close();
+    const oldStream=stream;stream=null;if(oldStream)oldStream.getTracks().forEach(track=>track.stop());
+    byId('preview').srcObject=null;byId('preview').hidden=true;
+    if(wake){try{await wake.release();}catch(_){}wake=null;}
+    byId('stop').disabled=true;byId('start').disabled=false;byId('connection').textContent='Camera đã dừng';message(reason);
+    if(previous&&notify){try{await post('/camera/stop',{owner:previous});}catch(_){}}
+  }
+  function waitForIce(peer){
+    if(peer.iceGatheringState==='complete')return Promise.resolve();
+    return new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>{peer.removeEventListener('icegatheringstatechange',check);reject(new Error('Không tạo được kết nối mạng. Kiểm tra Wi-Fi và thử lại.'));},8000);
+      function check(){if(peer.iceGatheringState==='complete'){clearTimeout(timer);peer.removeEventListener('icegatheringstatechange',check);resolve();}}
+      peer.addEventListener('icegatheringstatechange',check);
+    });
+  }
+  function explain(error){
+    if(error.name==='NotAllowedError')return 'Camera chưa được cấp quyền. Trong Safari, mở menu trang → Cài đặt trang web → Camera → Cho phép, rồi thử lại.';
+    if(error.name==='OverconstrainedError')return 'Không mở được camera trước. Kiểm tra thiết bị có camera trước và mở trang bằng Safari trên iPhone.';
+    if(error.name==='NotFoundError')return 'Không tìm thấy camera. Mở trang bằng Safari trên iPhone.';
+    if(error.name==='NotReadableError')return 'Camera đang bận. Đóng ứng dụng khác dùng camera rồi thử lại.';
+    if(error.name==='AbortError'||error.name==='TimeoutError')return 'Kết nối mất hoặc quá lâu. Kiểm tra laptop, Wi-Fi và quét QR mới.';
+    return error.message||'Không bật được camera. Kiểm tra HTTPS và kết nối laptop.';
+  }
+  byId('start').addEventListener('click',async()=>{
+    if(pc||stream)return;
+    if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){message('Camera cần HTTPS được iPhone tin cậy. Hoàn tất cài chứng chỉ theo hướng dẫn trên laptop; không bỏ qua cảnh báo chứng chỉ.');return;}
+    const number=++attempt;byId('start').disabled=true;byId('stop').disabled=false;message('Chọn Cho phép khi Safari hỏi quyền camera…');
+    try{
+      const local=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{exact:'user'},width:{ideal:640,max:640},height:{ideal:480,max:640},frameRate:{ideal:15,max:15}}});
+      if(number!==attempt){local.getTracks().forEach(track=>track.stop());return;}
+      stream=local;byId('preview').srcObject=local;byId('preview').hidden=false;await byId('preview').play();
+      if(number!==attempt)return;
+      await screenOn();if(number!==attempt){if(wake)await wake.release();return;}
+      const peer=pc=new RTCPeerConnection({iceServers:[]});
+      local.getVideoTracks().forEach(track=>{
+        const transceiver=peer.addTransceiver(track,{direction:'sendonly',streams:[local],sendEncodings:[{maxBitrate:700000,maxFramerate:15}]});
+        const codecs=window.RTCRtpSender?.getCapabilities?.('video')?.codecs;
+        if(codecs&&transceiver.setCodecPreferences){
+          const preferred=codecs.filter(codec=>codec.mimeType.toLowerCase()==='video/h264');
+          if(preferred.length)transceiver.setCodecPreferences([...preferred,...codecs.filter(codec=>codec.mimeType.toLowerCase()!=='video/h264')]);
+        }
+        track.addEventListener('ended',()=>{if(pc===peer)stop('Camera đã bị tắt. Quét QR mới để kết nối lại.');});
+      });
+      peer.addEventListener('connectionstatechange',()=>{
+        if(pc!==peer)return;
+        if(disconnectTimer)clearTimeout(disconnectTimer);disconnectTimer=null;
+        if(['failed','closed'].includes(peer.connectionState))stop('Mất kết nối camera. Kiểm tra Wi-Fi và quét QR mới.');
+        else if(peer.connectionState==='disconnected'){
+          byId('connection').textContent='Đang chờ Wi-Fi hồi phục…';
+          message('Đường truyền tạm gián đoạn. Camera vẫn bật; xe sẽ dừng nếu không có hình mới.');
+          disconnectTimer=setTimeout(()=>{if(pc===peer&&peer.connectionState==='disconnected')stop('Không khôi phục được đường truyền. Kiểm tra Wi-Fi và quét QR mới.');},12000);
+        }
+      });
+      byId('connection').textContent='Đang kết nối laptop…';message('Đã bật camera. Đang thiết lập đường truyền…');
+      await peer.setLocalDescription(await peer.createOffer());await waitForIce(peer);
+      if(number!==attempt)return;
+      abort=new AbortController();const timer=setTimeout(()=>abort?.abort(),20000);
+      let answer;try{answer=await post('/camera/offer',{token,type:peer.localDescription.type,sdp:peer.localDescription.sdp},abort.signal);}finally{clearTimeout(timer);abort=null;}
+      if(number!==attempt){post('/camera/stop',{owner:answer.owner}).catch(()=>{});return;}
+      owner=answer.owner;await peer.setRemoteDescription({type:answer.type,sdp:answer.sdp});
+      if(number!==attempt)return;
+      for(const sender of peer.getSenders()){
+        if(sender.track?.kind!=='video')continue;
+        try{
+          const params=sender.getParameters();
+          if(params.encodings?.length){
+            params.encodings.forEach(encoding=>{encoding.maxBitrate=700000;encoding.maxFramerate=15;});
+            params.degradationPreference='maintain-framerate';await sender.setParameters(params);
+          }
+        }catch(_){} // Older Safari can ignore optional sender tuning.
+      }
+      if(number!==attempt)return;
+      let checking=false;
+      poll=setInterval(async()=>{
+        if(checking||!owner)return;checking=true;const currentOwner=owner;
+        try{
+          const status=await post('/camera/status',{owner:currentOwner});if(owner!==currentOwner)return;
+          byId('connection').textContent=status.receiving?'Đang gửi hình về laptop':'Đang chờ đường truyền video…';
+          message(status.receiving?'Laptop đã nhận '+status.frames+' khung hình. Giữ trang này mở. Bật bám mục tiêu trên laptop khi sẵn sàng.':'Camera đã bật; laptop đang chờ hình. Nếu kéo dài, kiểm tra tường lửa UDP của Python.');
+        }catch(error){
+          if(owner===currentOwner){
+            if(error.status===400||error.status===403)await stop(explain(error));
+            else{
+              byId('connection').textContent='Tạm chưa đọc được trạng thái laptop';
+              message('Đang thử lại kết nối trạng thái. Giữ Safari mở; camera không bị tắt chỉ vì một yêu cầu mạng lỗi.');
+            }
+          }
+        }finally{checking=false;}
+      },1000);
+    }catch(error){if(number===attempt)await stop(explain(error));}
+  });
+  byId('stop').addEventListener('click',()=>stop());
+  function leave(){
+    const previous=owner;
+    if(previous){const data=new Blob([JSON.stringify({owner:previous})],{type:'application/json'});navigator.sendBeacon('/camera/stop',data);}
+    if(pc||stream)stop('Safari đã rời trang camera. Quét QR mới trên laptop để kết nối lại.',false);
+  }
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)leave();});window.addEventListener('pagehide',leave);
+})();
+</script></body></html>
