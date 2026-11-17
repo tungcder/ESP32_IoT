@@ -1,4 +1,3 @@
-
 import pygame
 import requests
 import time
@@ -8,7 +7,9 @@ import sys
 # CONFIGURATION
 # ==========================================
 
-ESP32_IP = "192.168.1.36"  # Thay bằng IP hiện tại của ESP32
+# IP hiện tại của ESP32 (xem Serial Monitor). Có thể truyền khi chạy:
+#   python gamepad_controller.py 192.168.1.50
+ESP32_IP = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1:8081"
 BASE_URL = f"http://{ESP32_IP}"
 
 # Flydigi Dune Fox - Left analog stick
@@ -101,7 +102,7 @@ def send_request(endpoint, params=None):
         if response.status_code == 409:
             manual_enabled = False
             mode_epoch = None
-            print("Quyen dieu khien da thay doi. Nhan A de chon lai Manual.")
+            print("Quyen dieu khien da thay doi (doi mode hoac chon nut tren web). Nhan A de lay lai tay cam.")
             return False
 
         response.raise_for_status()
@@ -139,15 +140,25 @@ def stop_robot():
     send_motor_command(0, 0)
 
 
+def claim_gamepad_input():
+    # Bao ESP32 dung nguon lai la tay cam: web hien "Tay cam", nut di chuyen tren web bi khoa.
+    return send_request("manualinput", {"source": "gamepad"})
+
+
+def release_gamepad_input():
+    # Tra nguon lai ve nut tren web khi thoat chuong trinh.
+    return send_request("manualinput", {"source": "web"})
+
+
 def select_manual():
     global manual_enabled
 
     print("Switching to MANUAL mode...")
 
-    if send_request("drivemanual"):
+    if send_request("drivemanual") and claim_gamepad_input():
         manual_enabled = True
         stop_robot()
-        print("MANUAL mode enabled")
+        print("MANUAL mode enabled (gamepad input)")
 
 
 def select_auto():
@@ -170,9 +181,9 @@ def select_auto():
 try:
     print("\nConnecting to ESP32...")
 
-    if send_request("drivemanual"):
+    if send_request("drivemanual") and claim_gamepad_input():
         manual_enabled = True
-        print("Connected. MANUAL mode enabled.")
+        print("Connected. MANUAL mode enabled (gamepad input).")
     else:
         print("Cannot connect to ESP32.")
         print("Check ESP32 IP and Wi-Fi connection.")
@@ -270,6 +281,7 @@ finally:
 
     if manual_enabled:
         stop_robot()
+        release_gamepad_input()
 
     session.close()
     pygame.quit()

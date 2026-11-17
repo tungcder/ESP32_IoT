@@ -2,6 +2,7 @@
 #include "drive_mode.h"
 #include "ai_control.h"
 #include "obstacle_avoid.h"
+#include "manual_input.h"
 #include <esp_system.h>
 #include <string.h>
 
@@ -76,6 +77,10 @@ String robotStatusJson() {
   json += F(",\"boot_id\":"); json += bootId;
   json += F(",\"ai_active\":"); json += aiControlActive() ? F("true") : F("false");
   json += F(",\"hybrid_supported\":true,\"hybrid_state\":"); appendEscaped(json, hybridStateName());
+  json += F(",\"manual_input\":\""); json += manualInputName(); json += '"';
+  json += F(",\"gamepad_age_ms\":"); json += gamepadAgeMs();
+  json += F(",\"gamepad_left\":"); json += gamepadLeftPercent();
+  json += F(",\"gamepad_right\":"); json += gamepadRightPercent();
   json += F(",\"distance_cm\":"); json += hybridSearching() ? obstacleDistanceCm() : aiDistanceCm();
   json += F(",\"ai_safety\":"); appendEscaped(json, aiSafetyReason());
   json += F(",\"ai_sensor_state\":"); appendEscaped(json, aiSensorState());

@@ -13,6 +13,7 @@
 #include "robot_status.h"
 #include "servo_scan.h"
 #include "ai_control.h"
+#include "manual_input.h"
 #include <limits.h>
 
 namespace {
@@ -37,6 +38,15 @@ namespace {
     uint32_t epoch;
     if (!number(server.header("X-Mode-Epoch"), epoch) || epoch != getModeEpoch()) {
       server.send(409, "text/plain", "Stale or missing mode epoch; reload status");
+      return false;
+    }
+    return true;
+  }
+
+  // Khi chọn Tay cầm, các nút di chuyển trên web bị khóa (nút Dừng vẫn luôn dùng được).
+  bool webInputAllowed() {
+    if (getManualInput() == ManualInput::Gamepad) {
+      server.send(409, "text/plain", "Gamepad input selected; switch to web buttons");
       return false;
     }
     return true;
@@ -109,6 +119,10 @@ namespace {
       server.send(409, "text/plain", "AUTO mode active");
       return;
     }
+    if (getManualInput() != ManualInput::Gamepad) {
+      server.send(409, "text/plain", "Web buttons selected");
+      return;
+    }
 
     if (!server.hasArg("left") || !server.hasArg("right")) {
       stopCar();
@@ -127,6 +141,7 @@ namespace {
     }
 
     setMotorSpeeds(left, right);
+    noteGamepadCommand(left, right);
     resetCommandTimer();
 
     server.send(200, "text/plain", "GAMEPAD OK");
@@ -193,6 +208,7 @@ namespace {
   void handleForward() {
     if (!currentEpoch()) return;
     if (getDriveMode() != DriveMode::Manual) { server.send(409, "text/plain", "AUTO mode active"); return; }
+    if (!webInputAllowed()) return;
     moveForward();
     resetCommandTimer();
     server.send(200, "text/plain", "FORWARD");
@@ -201,6 +217,7 @@ namespace {
   void handleBackward() {
     if (!currentEpoch()) return;
     if (getDriveMode() != DriveMode::Manual) { server.send(409, "text/plain", "AUTO mode active"); return; }
+    if (!webInputAllowed()) return;
     moveBackward();
     resetCommandTimer();
     server.send(200, "text/plain", "BACKWARD");
@@ -209,6 +226,7 @@ namespace {
   void handleLeft() {
     if (!currentEpoch()) return;
     if (getDriveMode() != DriveMode::Manual) { server.send(409, "text/plain", "AUTO mode active"); return; }
+    if (!webInputAllowed()) return;
     turnLeft();
     resetCommandTimer();
     server.send(200, "text/plain", "LEFT");
@@ -217,6 +235,7 @@ namespace {
   void handleRight() {
     if (!currentEpoch()) return;
     if (getDriveMode() != DriveMode::Manual) { server.send(409, "text/plain", "AUTO mode active"); return; }
+    if (!webInputAllowed()) return;
     turnRight();
     resetCommandTimer();
     server.send(200, "text/plain", "RIGHT");
@@ -246,6 +265,23 @@ namespace {
     setDriveMode(DriveMode::Manual);
     setServoAngle(90);
     recordRobotEvent("Wi-Fi Manual selected");
+    resetCommandTimer();
+    server.send(200, "application/json", robotStatusJson());
+  }
+
+  void handleManualInput() {
+    if (!currentEpoch()) return;
+    if (getDriveMode() != DriveMode::Manual) { server.send(409, "text/plain", "Manual mode required"); return; }
+    const String source = server.arg("source");
+    ManualInput next;
+    if (source == "gamepad") next = ManualInput::Gamepad;
+    else if (source == "web") next = ManualInput::Web;
+    else { server.send(400, "text/plain", "Invalid manual input source"); return; }
+    if (getManualInput() != next) {
+      stopCar();
+      setManualInput(next);
+      recordRobotEvent(next == ManualInput::Gamepad ? "Manual input: gamepad" : "Manual input: web buttons");
+    }
     resetCommandTimer();
     server.send(200, "application/json", robotStatusJson());
   }
@@ -297,6 +333,7 @@ void setupWiFiAndServer() {
   server.on("/driveauto", HTTP_GET, handleDriveAuto);
   server.on("/drivemanual", HTTP_GET, handleDriveManual);
   server.on("/status", HTTP_GET, handleStatus);
+  server.on("/manualinput", HTTP_GET, handleManualInput);
   const char* headers[] = {"X-Mode-Epoch"};
   server.collectHeaders(headers, 1);
   server.on("/ai/claim", HTTP_POST, handleAIClaim);

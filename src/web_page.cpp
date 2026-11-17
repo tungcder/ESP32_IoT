@@ -51,6 +51,23 @@ const char webpage[] PROGMEM = R"rawliteral(
   #right { grid-column: 3; grid-row: 2; }
   #backward { grid-column: 2; grid-row: 3; }
   .hint { text-align: center; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0 4px; }
+  .seg-btn { text-align: left; padding: 13px 15px; border: 1px solid #334954; border-radius: 14px; color: #c4d5de; background: #14232c; }
+  .seg-btn.active { border-color: #72dcb7; color: white; background: #1c493f; box-shadow: inset 0 0 0 1px #72dcb7; }
+  .seg-btn strong, .seg-btn span { display: block; }
+  .seg-btn strong { font-size: 15px; }
+  .seg-btn span { margin-top: 3px; font-size: 12px; opacity: .8; }
+  .pad-status { display: flex; align-items: center; gap: 10px; margin: 18px 0 8px; padding: 12px 14px; border-radius: 12px; background: #09131b; }
+  .dot { flex: none; width: 11px; height: 11px; border-radius: 50%; background: #eaa273; }
+  .dot.live { background: #79e1aa; box-shadow: 0 0 0 4px rgba(121, 225, 170, .18); }
+  .pad-row { display: grid; grid-template-columns: 48px 1fr 44px; align-items: center; gap: 10px; margin: 9px 0; font-size: 13px; color: #c4d5de; }
+  .pad-bar { position: relative; height: 14px; border: 1px solid #46606b; border-radius: 8px; background: #09131b; overflow: hidden; }
+  .pad-bar::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: #46606b; }
+  .pad-fill { position: absolute; top: 0; bottom: 0; background: #198467; }
+  .pad-fill.rev { background: #c98a3d; }
+  .pad-row b { text-align: right; color: white; font-variant-numeric: tabular-nums; }
+  .pad-stop { display: block; width: 150px; margin: 14px auto 8px; padding: 12px; border: 1px solid #d4777b; border-radius: 12px; background: #8b3038; color: white; }
+  code { padding: 1px 5px; border-radius: 5px; background: #09131b; color: #bfe9da; font: 12px ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
   .log-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
   .log-head h2 { margin: 0; }
   .log-head button { border: 1px solid #49606b; border-radius: 9px; padding: 7px 10px; color: #d5e5eb; background: #263b48; font-size: 12px; }
@@ -80,15 +97,26 @@ const char webpage[] PROGMEM = R"rawliteral(
   </section>
   <section class="card" id="manualPanel" hidden>
     <h2>Điều khiển thủ công</h2>
-    <p>Giữ nút mũi tên để xe di chuyển; thả nút để dừng.</p>
-    <div class="controller" aria-label="Điều khiển hướng">
+    <p id="manualHelp">Giữ nút mũi tên để xe di chuyển; thả nút để dừng.</p>
+    <div class="seg" role="group" aria-label="Cách điều khiển">
+      <button class="seg-btn active" id="inputWeb" type="button" aria-pressed="true"><strong>Nút trên web</strong><span>Giữ mũi tên để chạy</span></button>
+      <button class="seg-btn" id="inputPad" type="button" aria-pressed="false"><strong>Tay cầm</strong><span>Qua chương trình trên laptop</span></button>
+    </div>
+    <div class="controller" id="webControls" aria-label="Điều khiển hướng">
       <button class="control-btn" id="forward" type="button" aria-label="Tiến">↑</button>
       <button class="control-btn" id="left" type="button" aria-label="Trái">←</button>
       <button class="control-btn stop" id="stop" type="button" aria-label="Dừng">■</button>
       <button class="control-btn" id="right" type="button" aria-label="Phải">→</button>
       <button class="control-btn" id="backward" type="button" aria-label="Lùi">↓</button>
     </div>
-    <p class="hint">Có thể dùng phím mũi tên · Space hoặc Esc để dừng</p>
+    <p class="hint" id="webHint">Có thể dùng phím mũi tên · Space hoặc Esc để dừng</p>
+    <div id="padPanel" hidden>
+      <div class="pad-status" aria-live="polite"><span class="dot" id="padDot"></span><b id="padState">Chưa nhận lệnh từ tay cầm</b></div>
+      <div class="pad-row"><span>Trái</span><div class="pad-bar"><div class="pad-fill" id="padFillL"></div></div><b id="padValL">0</b></div>
+      <div class="pad-row"><span>Phải</span><div class="pad-bar"><div class="pad-fill" id="padFillR"></div></div><b id="padValR">0</b></div>
+      <button class="pad-stop" id="padStop" type="button">■ Dừng</button>
+      <p class="hint">Trên laptop (cùng Wi-Fi) chạy <code>python include/laptop_controller/gamepad_controller.py</code>.<br>Cần trái: ga và lái · A: Manual · Y: Auto · giữ B: dừng</p>
+    </div>
   </section>
   <section class="card" id="aiPanel" hidden>
     <h2>Auto + AI · YOLOv8n</h2>
@@ -112,6 +140,7 @@ const char webpage[] PROGMEM = R"rawliteral(
   let mode = null, held = null, heartbeat = null, pending = null, sending = false, switching = false;
   let latestId = 0, lastUptime = null, modeRevision = 0;
   let modeEpoch = null, bootId = null, viewingAI = false;
+  let manualInput = 'WEB', padAge = -1, padLeft = 0, padRight = 0;
   const logs = {AUTO: [], MANUAL: [], AI: [], HYBRID: []};
   const hiddenIds = {AUTO: 0, MANUAL: 0, AI: 0, HYBRID: 0};
   const logMode = () => mode === 'HYBRID' ? 'HYBRID' : viewingAI ? 'AI' : (mode || 'MANUAL');
@@ -129,6 +158,38 @@ const char webpage[] PROGMEM = R"rawliteral(
       byId(id).disabled = id !== 'driveAIMode' && !['AUTO', 'MANUAL', 'AI', 'HYBRID'].includes(value);
     }
     renderLog();
+  }
+
+  function applyInput(state) {
+    manualInput = state.manual_input === 'GAMEPAD' ? 'GAMEPAD' : 'WEB';
+    padAge = typeof state.gamepad_age_ms === 'number' ? state.gamepad_age_ms : -1;
+    padLeft = state.gamepad_left || 0;
+    padRight = state.gamepad_right || 0;
+    renderInput();
+  }
+
+  function renderInput() {
+    const pad = manualInput === 'GAMEPAD';
+    for (const [id, selected] of [['inputWeb', !pad], ['inputPad', pad]]) {
+      byId(id).classList.toggle('active', selected);
+      byId(id).setAttribute('aria-pressed', String(selected));
+    }
+    byId('webControls').hidden = pad;
+    byId('webHint').hidden = pad;
+    byId('padPanel').hidden = !pad;
+    byId('manualHelp').textContent = pad
+      ? 'Đang lái bằng tay cầm. Các nút mũi tên trên web tạm khóa.'
+      : 'Giữ nút mũi tên để xe di chuyển; thả nút để dừng.';
+    const live = padAge >= 0 && padAge < 1000;
+    byId('padDot').classList.toggle('live', live);
+    byId('padState').textContent = live ? 'Đang nhận lệnh từ tay cầm' : 'Chưa nhận lệnh từ tay cầm';
+    for (const [id, value] of [['L', live ? padLeft : 0], ['R', live ? padRight : 0]]) {
+      const fill = byId('padFill' + id), width = Math.min(50, Math.abs(value) / 100 * 50);
+      fill.style.width = width + '%';
+      fill.style.left = value >= 0 ? '50%' : (50 - width) + '%';
+      fill.classList.toggle('rev', value < 0);
+      byId('padVal' + id).textContent = value;
+    }
   }
 
   function clearHold() {
@@ -156,6 +217,10 @@ const char webpage[] PROGMEM = R"rawliteral(
         try {
           const response = await fetch(command.path, {cache: 'no-store', signal: AbortSignal.timeout(1200), headers: command.epoch === null ? {} : {'X-Mode-Epoch': String(command.epoch)}});
           if (!response.ok) throw new Error('HTTP ' + response.status);
+          if (command.path.startsWith('/manualinput')) {
+            const confirmed = await response.json();
+            if (command.revision === modeRevision) applyInput(confirmed);
+          }
           if (command.path === '/driveauto' || command.path === '/drivemanual') {
             const confirmed = await response.json();
             if (command.revision !== modeRevision) continue;
@@ -185,7 +250,7 @@ const char webpage[] PROGMEM = R"rawliteral(
   }
 
   function startMove(direction) {
-    if (mode !== 'MANUAL' || viewingAI || switching || held === direction) return;
+    if (mode !== 'MANUAL' || manualInput === 'GAMEPAD' || viewingAI || switching || held === direction) return;
     clearHold();
     held = direction;
     byId(direction).classList.add('active');
@@ -207,6 +272,16 @@ const char webpage[] PROGMEM = R"rawliteral(
     button.addEventListener('lostpointercapture', release);
   });
   byId('stop').addEventListener('click', () => stopMove(true));
+  byId('padStop').addEventListener('click', () => stopMove(true));
+
+  function chooseInput(source) {
+    if (mode !== 'MANUAL' || switching || viewingAI) return;
+    if ((source === 'gamepad') === (manualInput === 'GAMEPAD')) return;
+    clearHold();
+    request('/manualinput?source=' + source);
+  }
+  byId('inputWeb').addEventListener('click', () => chooseInput('web'));
+  byId('inputPad').addEventListener('click', () => chooseInput('gamepad'));
 
   function switchMode(path) {
     if (viewingAI && ((path === '/driveauto' && mode === 'AUTO') || (path === '/drivemanual' && mode === 'MANUAL'))) {
@@ -286,6 +361,7 @@ const char webpage[] PROGMEM = R"rawliteral(
         if (state.drive_mode !== 'MANUAL') clearHold();
         showMode(state.drive_mode);
       }
+      applyInput(state);
       byId('status').textContent = labels[state.movement] || state.movement;
       byId('connection').textContent = 'Đã kết nối';
       byId('connection').classList.remove('offline');
