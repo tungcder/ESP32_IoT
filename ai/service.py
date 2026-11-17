@@ -16,7 +16,8 @@ from urllib.parse import urlsplit
 from urllib.error import HTTPError, URLError
 
 from .follower import Follower
-from .robot_client import RobotClient, validate_robot_url
+from .hybrid import HybridFollower
+from .robot_client import RobotClient, describe_robot_error, validate_robot_url
 from yolov8n.target_alignment import AlignmentConfig
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +36,8 @@ def lan_address():
 class AIService:
     def __init__(self, config_path=None, port=8090):
         self.lock = threading.RLock()
+        self.preview_ready = threading.Condition(self.lock)
+        self.frame_ready = threading.Event()
         self.operation_lock = threading.RLock()
         self.shutdown_event = threading.Event()
         self.control_wake = threading.Event()
@@ -51,6 +54,7 @@ class AIService:
         self.robot_seen = 0
         self.robot_error = ""
         self.session = None
+        self.control_mode = "AI"
         self.sequence = 0
         self.follower = None
         self.decision = dict(state="IDLE", movement="STOPPED", reason="Chưa bắt đầu AI")
@@ -72,6 +76,9 @@ class AIService:
         self.raw_jpeg_at = 0
         self.raw_jpeg_id = 0
         self.jpeg_id = 0
+        self.frame_times = deque(maxlen=60)
+        self.inference_times = deque(maxlen=60)
+        self.processing_ms = 0
         self.pair_token = secrets.token_urlsafe(24)
         self.pair_expires = time.monotonic() + 600
         self.ui_token = secrets.token_urlsafe(32)
@@ -92,7 +99,7 @@ class AIService:
         with self.lock:
             self.event_id += 1
             event = dict(id=self.event_id, time=datetime.now().astimezone().isoformat(timespec="seconds"),
-                         mode="AI", kind=kind, message=message)
+                         mode=self.control_mode, kind=kind, message=message)
             self.events.append(event)
             try:
                 self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -102,6 +109,10 @@ class AIService:
                 pass  # A full disk cannot prevent STOP or release.
 
     def launch(self):
+        import cv2
+        # Conversion, inference and WebRTC already run concurrently. OpenCV's
+        # default one worker per CPU adds contention and irregular frame times.
+        cv2.setNumThreads(1)
         for target in (self.inference_loop, self.control_loop):
             worker = threading.Thread(target=target, daemon=True)
             worker.start()
@@ -137,6 +148,15 @@ class AIService:
                 self.config = updated
             self.log("Đã lưu cấu hình AI")
 
+    def find_robots(self):
+        from .network import discover_robots
+        with self.operation_lock:
+            with self.lock:
+                if self.session:
+                    raise ValueError("Dừng AI trước khi tìm xe trong Wi-Fi.")
+                previous = self.config["robot_url"]
+            return discover_robots(known_url=previous)
+
     def begin_camera(self):
         with self.operation_lock:
             with self.lock:
@@ -145,6 +165,9 @@ class AIService:
                 self.camera_generation += 1
                 self.frame = self.result = self.jpeg = self.raw_jpeg = None
                 self.frame_at = self.result_at = 0
+                self.frame_times.clear()
+                self.inference_times.clear()
+                self.processing_ms = 0
                 self.camera_connected = True
                 self.camera_error = "Đang chờ hình từ iPhone…"
                 generation = self.camera_generation
@@ -160,10 +183,13 @@ class AIService:
             first = self.frame is None
             self.frame_id += 1
             self.frame, self.frame_at = frame, stamp
+            self.frame_times.append(time.monotonic())
             self.camera_error = ""
             if preview:
                 self.raw_jpeg = preview
                 self.raw_jpeg_at, self.raw_jpeg_id = stamp, self.frame_id
+                self.preview_ready.notify_all()
+        self.frame_ready.set()
         if first:
             self.log("Đã nhận hình WebRTC từ camera iPhone")
         return True
@@ -177,6 +203,7 @@ class AIService:
                 self.camera_error = reason
                 self.frame = self.result = self.jpeg = self.raw_jpeg = None
                 self.frame_at = self.result_at = 0
+                self.preview_ready.notify_all()
                 active = bool(self.session)
             if active:
                 self.stop(reason + "; kết thúc phiên AI", "FAULT")
@@ -198,7 +225,11 @@ class AIService:
             self.log(self.model_error, "error")
             return
         previous = None
-        while not self.shutdown_event.wait(0.01):
+        while not self.shutdown_event.is_set():
+            self.frame_ready.wait(0.1)
+            self.frame_ready.clear()
+            if self.shutdown_event.is_set():
+                break
             with self.lock:
                 frame, stamp, sequence, generation = self.frame, self.frame_at, self.frame_id, self.camera_generation
             key = (generation, sequence)
@@ -209,16 +240,25 @@ class AIService:
                 if getattr(ai, "camera_generation", None) != generation:
                     ai.stop()
                     ai.camera_generation = generation
+                started = time.monotonic()
                 result = ai.process_frame(frame, captured_at=stamp, draw=True)
-                success, encoded = cv2.imencode(".jpg", result.annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
                 with self.lock:
-                    if generation == self.camera_generation and self.camera_connected:
-                        self.result = result.alignment.as_dict()
-                        self.result["inference_ms"] = round(result.inference_ms, 1)
-                        self.result_at, self.result_id = stamp, sequence
-                        if success:
-                            self.jpeg, self.jpeg_at = encoded.tobytes(), stamp
-                            self.jpeg_id = sequence
+                    if (generation != self.camera_generation or not self.camera_connected
+                            or time.monotonic() - stamp > FRAME_TIMEOUT):
+                        continue
+                    # Motor decisions do not wait on display JPEG compression.
+                    self.result = result.alignment.as_dict()
+                    self.result["inference_ms"] = round(result.inference_ms, 1)
+                    self.result_at, self.result_id = stamp, sequence
+                    self.processing_ms = round((time.monotonic() - started) * 1000, 1)
+                    self.inference_times.append(time.monotonic())
+                success, encoded = cv2.imencode(".jpg", result.annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                with self.lock:
+                    if (success and generation == self.camera_generation and self.camera_connected
+                            and time.monotonic() - stamp <= FRAME_TIMEOUT):
+                        self.jpeg, self.jpeg_at = encoded.tobytes(), stamp
+                        self.jpeg_id = sequence
+                        self.preview_ready.notify_all()
             except Exception:
                 with self.lock:
                     self.result = None
@@ -227,7 +267,9 @@ class AIService:
                 self.log(self.model_error, "error")
                 return
 
-    def start(self):
+    def start(self, mode="AI"):
+        if mode not in ("AI", "HYBRID"):
+            raise ValueError("Chế độ bắt đầu không hợp lệ.")
         with self.operation_lock:
             with self.lock:
                 if self.session:
@@ -237,16 +279,20 @@ class AIService:
                         or time.monotonic() - self.frame_at > FRAME_TIMEOUT):
                     raise ValueError("Cần model sẵn sàng và hình iPhone mới trước khi bắt đầu.")
                 client = RobotClient(self.config["robot_url"])
-                follower = Follower(alignment=self.alignment_config)
+                follower = (HybridFollower if mode == "HYBRID" else Follower)(alignment=self.alignment_config)
             status = client.status()
             if "mode_epoch" not in status:
                 raise ValueError("Firmware chưa hỗ trợ mode AI. Nạp firmware mới trước.")
-            claim = client.claim(status["mode_epoch"])
+            if mode == "HYBRID" and not status.get("hybrid_supported"):
+                raise ValueError("Cần nạp firmware mới hỗ trợ Auto + AI trước khi bắt đầu.")
+            claim = (client.claim_hybrid if mode == "HYBRID" else client.claim)(status["mode_epoch"])
             try:
                 # Establish the first acknowledged command before returning to the UI.
                 # The ESP32 watchdog starts at claim, not at the first control tick.
-                stopped = client.command(claim["session"], 1, "STOPPED", 0)
-                if not isinstance(stopped, dict) or stopped.get("movement") != "STOPPED":
+                stopped = (client.hybrid_command(claim["session"], 1, "HOLD", "STOPPED", 0)
+                           if mode == "HYBRID" else client.command(claim["session"], 1, "STOPPED", 0))
+                if (not isinstance(stopped, dict) or stopped.get("movement") != "STOPPED"
+                        or stopped.get("drive_mode") != mode or not stopped.get("ai_active")):
                     raise ValueError("ESP32 chưa xác nhận lệnh dừng khởi tạo AI.")
             except Exception:
                 try:
@@ -256,13 +302,15 @@ class AIService:
                 raise
             with self.lock:
                 self.session = claim["session"]
+                self.control_mode = mode
                 self.sequence = 1
                 self.follower = follower
                 self.robot_state, self.robot_seen = stopped, time.monotonic()
                 self.robot_error = ""
-                self.decision = dict(state="WAIT_TARGET", movement="STOPPED", reason="Chờ khóa mục tiêu")
+                self.decision = dict(state="READY" if mode == "HYBRID" else "WAIT_TARGET",
+                                     movement="STOPPED", reason="Đã dừng khởi tạo; chuẩn bị Auto + AI" if mode == "HYBRID" else "Chờ khóa mục tiêu")
             self.control_wake.set()
-            self.log("Bắt đầu phiên AI; chờ xác nhận mục tiêu")
+            self.log("Bắt đầu Auto + AI; chưa thấy mục tiêu sẽ tự né vật cản" if mode == "HYBRID" else "Bắt đầu phiên AI; chờ xác nhận mục tiêu")
 
     def stop(self, reason="Người dùng dừng AI", final_state="IDLE"):
         with self.operation_lock:
@@ -272,16 +320,18 @@ class AIService:
                 self.decision = dict(self.decision, state=final_state, movement="STOPPED", speed=0, reason=reason)
             if session:
                 try:
-                    client.release(session)
+                    confirmed = client.release(session)
                     with self.lock:
                         if self.robot_state:
-                            self.robot_state = dict(self.robot_state, movement="STOPPED", ai_active=False)
+                            self.robot_state = (confirmed if isinstance(confirmed, dict)
+                                                else dict(self.robot_state, movement="STOPPED", ai_active=False))
                             self.robot_seen = time.monotonic()
                     self.log("ESP32 đã xác nhận kết thúc quyền điều khiển AI")
-                except Exception:
+                except Exception as error:
                     with self.lock:
                         self.robot_seen = 0
-                    self.log("Không còn xác nhận quyền AI; nếu phiên còn hiệu lực, watchdog AI sẽ dừng sau tối đa 500 ms", "warning")
+                    self.log("Không còn xác nhận quyền AI: " + describe_robot_error(error)
+                             + ". Nếu phiên còn hiệu lực, watchdog AI sẽ dừng sau tối đa 500 ms", "warning")
             self.log(reason, "error" if final_state == "FAULT" else "info")
 
     def change_mode(self, mode):
@@ -293,7 +343,7 @@ class AIService:
             client = RobotClient(self.config["robot_url"], timeout=0.8)
             try:
                 state = client.status()
-                if not isinstance(state, dict) or state.get("drive_mode") not in ("AUTO", "MANUAL", "AI"):
+                if not isinstance(state, dict) or state.get("drive_mode") not in ("AUTO", "MANUAL", "AI", "HYBRID"):
                     raise ValueError("Địa chỉ cấu hình không trả về trạng thái ESP32 hợp lệ.")
                 # Old Auto/Manual firmware has no epoch and returns plain text.
                 # New firmware must still receive its epoch; never retry without it.
@@ -334,9 +384,13 @@ class AIService:
                     return
                 now = time.monotonic()
                 observation, stamp, frame_id = self.result, self.result_at, self.result_id
-                if observation is None or now - stamp > FRAME_TIMEOUT or now - self.frame_at > FRAME_TIMEOUT or self.camera_error:
-                    self.stop("Mất hình mới hoặc AI quá chậm; kết thúc phiên", "FAULT")
-                    return
+                stale = (observation is None or now - stamp > FRAME_TIMEOUT
+                         or now - self.frame_at > FRAME_TIMEOUT or bool(self.camera_error))
+            # A slow release must not hold the camera/snapshot lock.
+            if stale:
+                self.stop("Mất hình mới hoặc AI quá chậm; kết thúc phiên", "FAULT")
+                return
+            with self.lock:
                 distance = (self.robot_state or {}).get("distance_cm", 0)
                 decision = self.follower.step(observation, frame_id, now, distance)
                 old = self.decision
@@ -344,7 +398,11 @@ class AIService:
                 client = RobotClient(self.config["robot_url"])
                 self.sequence += 1
                 sequence = self.sequence
-            state = client.command(session, sequence, decision.movement, decision.speed)
+            state = (client.hybrid_command(session, sequence, decision.behavior, decision.movement, decision.speed)
+                     if self.control_mode == "HYBRID" else client.command(session, sequence, decision.movement, decision.speed))
+            if (not isinstance(state, dict) or not state.get("ai_active")
+                    or state.get("drive_mode") != self.control_mode):
+                raise ValueError("ESP32 không còn xác nhận quyền điều khiển của phiên hiện tại.")
             with self.lock:
                 self.robot_state, self.robot_seen = state, time.monotonic()
                 self.follower.feedback(state["movement"], now=time.monotonic())
@@ -375,30 +433,58 @@ class AIService:
                             self.robot_error = ""
                         last_poll = time.monotonic()
             except Exception as error:
+                detail = describe_robot_error(error)
                 with self.lock:
                     active = bool(self.session)
                     self.robot_seen = 0
-                    self.robot_error = f"Không đọc được trạng thái ESP32 tại {self.config['robot_url']}. Kiểm tra nguồn xe, IP trong Serial Monitor và Wi-Fi."
+                    self.robot_error = (f"Không giao tiếp được ESP32 tại {self.config['robot_url']}: {detail}. "
+                                        "Kiểm tra nguồn xe, IP trong Serial Monitor và Wi-Fi.")
                 if active:
-                    detail = (f"HTTP {error.code}: phiên đã hết hạn hoặc lệnh bị từ chối"
-                              if isinstance(error, HTTPError) else type(error).__name__)
                     self.log("Lỗi giao tiếp ESP32: " + detail, "error")
                     self.stop("ESP32: " + detail + "; kết thúc phiên AI", "FAULT")
                 last_poll = time.monotonic()
             # Network time is part of the 100 ms period, not an extra delay.
             self.control_wake.wait(max(0, 0.1 - (time.monotonic() - cycle_started)))
 
-    def snapshot(self):
+    @staticmethod
+    def frame_rate(stamps, now):
+        recent = [stamp for stamp in stamps if now - stamp <= 2]
+        if len(recent) < 2 or now - recent[-1] > 1 or recent[-1] <= recent[0]:
+            return 0
+        return round((len(recent) - 1) / (recent[-1] - recent[0]), 1)
+
+    def snapshot(self, after_event=None):
         with self.lock:
             now = time.monotonic()
-            return dict(active=bool(self.session), model_ready=self.model_ready, model_error=self.model_error,
+            events = list(self.events)
+            if after_event is not None and after_event <= self.event_id:
+                events = [event for event in events if event["id"] > after_event]
+            return dict(active=bool(self.session), control_mode=self.control_mode, model_ready=self.model_ready, model_error=self.model_error,
                         camera_ready=self.frame is not None and now - self.frame_at <= FRAME_TIMEOUT and not self.camera_error,
                         inference_ready=self.result is not None and now - self.result_at <= FRAME_TIMEOUT,
                         camera_connected=self.camera_connected, camera_error=self.camera_error, frame_age_ms=round((now - self.frame_at)*1000) if self.frame_at else None,
                         robot_online=now - self.robot_seen < 1.5, robot=self.robot_state, robot_error=self.robot_error,
                         decision=dict(self.decision), detection=self.result,
                         config=dict(self.config), pair_url=self.pair_url(),
-                        pair_remaining=max(0, round(self.pair_expires - now)), events=list(self.events))
+                        pair_remaining=max(0, round(self.pair_expires - now)), events=events, event_id=self.event_id,
+                        pipeline=dict(camera_fps=self.frame_rate(self.frame_times, now),
+                                      ai_fps=self.frame_rate(self.inference_times, now),
+                                      processing_ms=self.processing_ms,
+                                      result_age_ms=round((now - self.result_at) * 1000) if self.result_at else None))
+
+    def wait_preview(self, after=None, timeout=0.25):
+        """Wait for one newest JPEG; no per-viewer frame queue is retained."""
+        deadline = time.monotonic() + timeout
+        with self.preview_ready:
+            while not self.shutdown_event.is_set():
+                frame = self.preview()
+                if frame is not None and (after is None or frame[1] > after):
+                    return frame
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not self.camera_connected:
+                    return None
+                self.preview_ready.wait(remaining)
+        return None
 
     def preview(self):
         with self.lock:
@@ -417,6 +503,9 @@ class AIService:
 
     def close(self):
         self.shutdown_event.set()
+        self.frame_ready.set()
+        with self.preview_ready:
+            self.preview_ready.notify_all()
         self.control_wake.set()
         self.stop("Đóng ứng dụng AI")
         for worker in self.threads:

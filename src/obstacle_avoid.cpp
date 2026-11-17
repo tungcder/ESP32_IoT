@@ -7,6 +7,7 @@
 #include "servo_scan.h"
 #include "obstacle_avoid.h"
 #include "robot_status.h"
+#include "hybrid_control.h"
 
 namespace {
 
@@ -33,6 +34,8 @@ unsigned long stateStarted = 0;
 unsigned long lastFrontCheck = 0;
 unsigned long reverseDurationMs = 0;
 unsigned long turnDurationMs = 0;
+unsigned long initializedAt = 0;
+int lastDistance = 0;
 
 bool leftNearClear = false;
 bool rightNearClear = false;
@@ -48,6 +51,7 @@ bool elapsed(unsigned long duration) {
 
 int readDistanceCm() {
     int distance = getDistanceCm();
+    lastDistance = distance;
     return (distance >= MIN_VALID_CM && distance <= MAX_VALID_CM)
         ? distance : -1;
 }
@@ -114,6 +118,8 @@ void setupObstacleAvoidance() {
 
     state = State::CheckFront;
     stateStarted = millis();
+    initializedAt = millis();
+    lastDistance = 0;
     lastFrontCheck = millis() - FRONT_INTERVAL_MS;
 
     leftNearClear = false;
@@ -125,7 +131,8 @@ void setupObstacleAvoidance() {
 }
 
 void updateObstacleAvoidance() {
-    if (getDriveMode() != DriveMode::Auto) return;
+    if (getDriveMode() != DriveMode::Auto && !hybridSearching()) return;
+    if (hybridSearching() && millis() - initializedAt < Config::HYBRID_SERVO_SETTLE_MS) return;
 
     switch (state) {
 
@@ -137,6 +144,7 @@ void updateObstacleAvoidance() {
             setServoAngle(SERVO_CENTER);
 
             int distance = readDistanceCm();
+            if (hybridSearching() && distance == -1) { stopCar(); break; }
             Serial.printf("Front[90 deg]: %d cm\n", distance);
 
             if (isClear(distance))
@@ -160,6 +168,7 @@ void updateObstacleAvoidance() {
         case State::ScanLeft135:
             if (elapsed(SERVO_SETTLE_MS)) {
                 int distance = readDistanceCm();
+                if (hybridSearching() && distance == -1) { stopCar(); break; }
                 leftNearClear = isClear(distance);
 
                 logDistance("Left", 135, distance);
@@ -171,6 +180,7 @@ void updateObstacleAvoidance() {
         case State::ScanLeft180:
             if (elapsed(SERVO_SETTLE_MS)) {
                 int distance = readDistanceCm();
+                if (hybridSearching() && distance == -1) { stopCar(); break; }
                 logDistance("Left", 180, distance);
 
                 if (leftNearClear && isClear(distance)) {
@@ -185,6 +195,7 @@ void updateObstacleAvoidance() {
         case State::ScanRight45:
             if (elapsed(SERVO_CROSS_SETTLE_MS)) {
                 int distance = readDistanceCm();
+                if (hybridSearching() && distance == -1) { stopCar(); break; }
                 rightNearClear = isClear(distance);
 
                 logDistance("Right", 45, distance);
@@ -196,6 +207,7 @@ void updateObstacleAvoidance() {
         case State::ScanRight0:
             if (elapsed(SERVO_SETTLE_MS)) {
                 int distance = readDistanceCm();
+                if (hybridSearching() && distance == -1) { stopCar(); break; }
                 logDistance("Right", 0, distance);
 
                 if (rightNearClear && isClear(distance)) {
@@ -214,7 +226,7 @@ void updateObstacleAvoidance() {
                 recordRobotEvent("Turn complete; checking front");
 
                 setServoAngle(SERVO_CENTER);
-                moveForward();
+                if (!hybridSearching()) moveForward();
 
                 lastFrontCheck = millis() - FRONT_INTERVAL_MS;
                 enterState(State::CheckFront);
@@ -222,3 +234,5 @@ void updateObstacleAvoidance() {
             break;
     }
 }
+
+int obstacleDistanceCm() { return lastDistance; }

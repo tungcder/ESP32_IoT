@@ -6,13 +6,14 @@ import html
 import json
 from pathlib import Path
 import ssl
+import time
 from urllib.parse import urlsplit
 
 from aiohttp import web
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 
-from .https_setup import CERTS
+from .https_setup import CERTS, ensure_current_network
 from .service import AIService
 from .webrtc import CameraReceiver
 
@@ -84,7 +85,9 @@ async def pair(request):
 async def state(request):
     if not authorized(request):
         return json_response(dict(error="Mở lại bảng AI để lấy phiên giao diện mới."), 403)
-    result = await asyncio.to_thread(request.app[SERVICE].snapshot)
+    cursor = request.query.get("after_event", "")
+    after_event = int(cursor) if cursor.isdigit() and len(cursor) <= 12 else None
+    result = await asyncio.to_thread(request.app[SERVICE].snapshot, after_event)
     result["https"] = request.app[INFO]
     return json_response(result)
 
@@ -111,15 +114,24 @@ async def qr(request):
 async def video(request):
     if not authorized(request):
         return json_response(dict(error="Phiên giao diện không hợp lệ."), 403)
-    frame = request.app[SERVICE].preview()
+    after = request.query.get("after", "")
+    sequence_after = int(after) if after.isdigit() and len(after) <= 12 else None
+    started = time.monotonic()
+
+    def next_frame():
+        frame = request.app[SERVICE].wait_preview(sequence_after)
+        # Match the age sample to the worker's completion, so any later event
+        # loop/transport delay still counts toward the browser's age limit.
+        return frame, time.monotonic()
+
+    frame, sampled_at = await asyncio.to_thread(next_frame)
+    wait_ms = int((sampled_at - started) * 1000)
     if frame is None:
         return web.Response(status=204, headers=HEADERS)
     jpeg, sequence, age_ms = frame
-    after = request.query.get("after", "")
-    if after.isdigit() and sequence <= int(after):
-        return web.Response(status=204, headers=HEADERS)
     return web.Response(body=jpeg, content_type="image/jpeg",
-                        headers={**HEADERS, "X-Frame-Id": str(sequence), "X-Frame-Age-Ms": str(age_ms)})
+                        headers={**HEADERS, "X-Frame-Id": str(sequence), "X-Frame-Age-Ms": str(age_ms),
+                                 "X-Frame-Wait-Ms": str(wait_ms)})
 
 
 async def camera_api(request):
@@ -144,6 +156,8 @@ async def action(request):
     if not isinstance(data, dict):
         raise ValueError("Dữ liệu cần là JSON object.")
     service, camera = request.app[SERVICE], request.app[CAMERA]
+    if request.path == "/api/discover":
+        return json_response(await asyncio.to_thread(service.find_robots))
     if request.path == "/api/config":
         if data.get("public_url"):
             parsed = urlsplit(str(data["public_url"]))
@@ -151,7 +165,7 @@ async def action(request):
                 raise ValueError("Địa chỉ QR phải khớp chứng chỉ và cổng server. Chạy setup.ps1 -LaptopIP IP-moi khi đổi mạng.")
         await asyncio.to_thread(service.save_config, data)
     elif request.path == "/api/start":
-        await asyncio.to_thread(service.start)
+        await asyncio.to_thread(service.start, data.get("mode", "AI"))
     elif request.path == "/api/stop":
         await asyncio.to_thread(service.stop)
     elif request.path == "/api/estop":
@@ -173,7 +187,7 @@ def create_app(service, info):
     for path in ("/camera/offer", "/camera/status", "/camera/stop"):
         app.router.add_post(path, camera_api)
     for path in ("/api/config", "/api/start", "/api/stop", "/api/estop", "/api/mode",
-                 "/api/pair/renew", "/api/camera/disconnect"):
+                 "/api/pair/renew", "/api/camera/disconnect", "/api/discover"):
         app.router.add_post(path, action)
 
     async def shutdown(app):
@@ -214,12 +228,13 @@ def bootstrap_app(info):
 
 async def serve(args):
     try:
+        ensure_current_network(args.port, args.laptop_ip, args.config or Path(__file__).with_name("config.local.json"))
         info = certificate_info(args.port, args.setup_port)
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.load_cert_chain(CERTS / "server.pem", CERTS / "server-key.pem")
-    except (OSError, ValueError):
-        raise SystemExit("Chua co HTTPS hop le. Chay .\\ai\\setup.ps1 truoc; xem ai/README.md.") from None
+    except (OSError, ValueError) as error:
+        raise SystemExit(f"Khong chuan bi duoc mang/HTTPS: {error}. Xem ai/README.md.") from None
     service = AIService(args.config, args.port)
     public = service.config.get("public_url") or info["public_url"]
     parsed = urlsplit(public)
@@ -234,7 +249,9 @@ async def serve(args):
         await web.TCPSite(runner, args.host, args.port, ssl_context=context).start()
         await web.TCPSite(setup_runner, args.host, args.setup_port).start()
         service.launch()
+        print(f"Mo AI tren laptop (khong doi theo Wi-Fi): https://localhost:{args.port}", flush=True)
         print("AI dashboard: " + public, flush=True)
+        print("IP xe thay doi: bam Tim xe trong Wi-Fi tren bang AI, hoac chay ai/find.ps1.", flush=True)
         print("Cai chung chi iPhone (mot lan): " + info["setup_url"], flush=True)
         print("CA SHA256: " + info["fingerprint"], flush=True)
         print("Quet QR > Bat camera truoc > Cho phep. Xe chi chay khi bam Bat dau bam muc tieu.", flush=True)
@@ -250,6 +267,7 @@ def main():
     parser.add_argument("--port", type=int, default=8090)
     parser.add_argument("--setup-port", type=int)
     parser.add_argument("--config")
+    parser.add_argument("--laptop-ip", help="Override automatic Wi-Fi address detection")
     args = parser.parse_args()
     args.setup_port = args.setup_port or args.port + 1
     if not 1024 <= args.port <= 65534 or not 1024 <= args.setup_port <= 65535 or args.port == args.setup_port:

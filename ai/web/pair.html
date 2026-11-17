@@ -12,6 +12,7 @@
 </main><script>
 (() => {
   const token='__PAIR_TOKEN__', byId=id=>document.getElementById(id);
+  const cameraFPS=15, cameraBitrate=500000;
   let stream=null, pc=null, owner=null, wake=null, poll=null, attempt=0, abort=null, disconnectTimer=null;
   const message=text=>{byId('message').textContent=text;};
   async function post(path,data,signal){
@@ -53,14 +54,15 @@
     if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){message('Camera cần HTTPS được iPhone tin cậy. Hoàn tất cài chứng chỉ theo hướng dẫn trên laptop; không bỏ qua cảnh báo chứng chỉ.');return;}
     const number=++attempt;byId('start').disabled=true;byId('stop').disabled=false;message('Chọn Cho phép khi Safari hỏi quyền camera…');
     try{
-      const local=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{exact:'user'},width:{ideal:640,max:640},height:{ideal:480,max:640},frameRate:{ideal:15,max:15}}});
+      const local=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{exact:'user'},width:{ideal:640,max:640},height:{ideal:480,max:640},frameRate:{ideal:cameraFPS,max:cameraFPS}}});
       if(number!==attempt){local.getTracks().forEach(track=>track.stop());return;}
       stream=local;byId('preview').srcObject=local;byId('preview').hidden=false;await byId('preview').play();
       if(number!==attempt)return;
       await screenOn();if(number!==attempt){if(wake)await wake.release();return;}
       const peer=pc=new RTCPeerConnection({iceServers:[]});
       local.getVideoTracks().forEach(track=>{
-        const transceiver=peer.addTransceiver(track,{direction:'sendonly',streams:[local],sendEncodings:[{maxBitrate:700000,maxFramerate:15}]});
+        if('contentHint' in track)track.contentHint='motion';
+        const transceiver=peer.addTransceiver(track,{direction:'sendonly',streams:[local],sendEncodings:[{maxBitrate:cameraBitrate,maxFramerate:cameraFPS}]});
         const codecs=window.RTCRtpSender?.getCapabilities?.('video')?.codecs;
         if(codecs&&transceiver.setCodecPreferences){
           const preferred=codecs.filter(codec=>codec.mimeType.toLowerCase()==='video/h264');
@@ -91,7 +93,8 @@
         try{
           const params=sender.getParameters();
           if(params.encodings?.length){
-            params.encodings.forEach(encoding=>{encoding.maxBitrate=700000;encoding.maxFramerate=15;});
+            params.encodings.forEach(encoding=>{encoding.maxBitrate=cameraBitrate;encoding.maxFramerate=cameraFPS;});
+            params.degradationPreference='maintain-framerate';
             params.degradationPreference='maintain-framerate';await sender.setParameters(params);
           }
         }catch(_){} // Older Safari can ignore optional sender tuning.

@@ -71,7 +71,7 @@ const char webpage[] PROGMEM = R"rawliteral(
   <nav class="modes" aria-label="Chế độ lái">
     <button class="mode-btn" id="driveAutoMode" type="button" aria-pressed="false"><strong>OBSTACLE AUTO</strong><span>Tự tránh vật cản</span></button>
     <button class="mode-btn" id="driveManualMode" type="button" aria-pressed="false"><strong>WI-FI MANUAL</strong><span>Điều khiển trực tiếp</span></button>
-    <button class="mode-btn" id="driveAIMode" type="button" aria-pressed="false"><strong>AI</strong><span>Camera và bám mục tiêu</span></button>
+    <button class="mode-btn" id="driveAIMode" type="button" aria-pressed="false"><strong>AUTO + AI / AI</strong><span>Camera, tự chạy và bám mục tiêu</span></button>
   </nav>
   <section class="card" id="autoPanel" hidden>
     <h2>Xe đang tự lái</h2>
@@ -91,12 +91,12 @@ const char webpage[] PROGMEM = R"rawliteral(
     <p class="hint">Có thể dùng phím mũi tên · Space hoặc Esc để dừng</p>
   </section>
   <section class="card" id="aiPanel" hidden>
-    <h2>AI · YOLOv8n</h2>
-    <p>Mở bảng AI trên laptop để ghép nối iPhone, xem camera iPhone qua WebRTC và bám mục tiêu. Mở bảng này chưa kích hoạt xe.</p>
+    <h2>Auto + AI · YOLOv8n</h2>
+    <p>Mở bảng AI trên laptop để ghép nối iPhone. Chọn Bắt đầu Auto + AI để xe tự né vật cản khi chưa thấy mục tiêu và chuyển sang bám khi phát hiện mục tiêu. Mở bảng này chưa kích hoạt xe.</p>
     <label for="aiServer">Địa chỉ bảng AI trên laptop</label>
-    <input id="aiServer" type="url" placeholder="https://IP-laptop:8090" value="https://127.0.0.1:8090">
+    <input id="aiServer" type="url" placeholder="https://IP-laptop:8090" value="https://localhost:8090">
     <button class="action" id="openAI" type="button">Mở camera, QR và log AI</button>
-    <p id="aiHint">Chạy ai/run.ps1 trên laptop trước khi mở.</p>
+    <p id="aiHint">Trên laptop đang chạy AI, dùng https://localhost:8090. Đổi Wi-Fi thì chạy lại ai/run.ps1 để cập nhật QR cho iPhone.</p>
   </section>
   <button class="emergency" id="emergencyStop" type="button">DỪNG KHẨN CẤP · MỌI MODE</button>
   <section class="card" aria-label="Nhật ký hoạt động">
@@ -112,21 +112,21 @@ const char webpage[] PROGMEM = R"rawliteral(
   let mode = null, held = null, heartbeat = null, pending = null, sending = false, switching = false;
   let latestId = 0, lastUptime = null, modeRevision = 0;
   let modeEpoch = null, bootId = null, viewingAI = false;
-  const logs = {AUTO: [], MANUAL: [], AI: []};
-  const hiddenIds = {AUTO: 0, MANUAL: 0, AI: 0};
-  const logMode = () => viewingAI ? 'AI' : (mode || 'MANUAL');
+  const logs = {AUTO: [], MANUAL: [], AI: [], HYBRID: []};
+  const hiddenIds = {AUTO: 0, MANUAL: 0, AI: 0, HYBRID: 0};
+  const logMode = () => mode === 'HYBRID' ? 'HYBRID' : viewingAI ? 'AI' : (mode || 'MANUAL');
 
   function showMode(value) {
     mode = value;
     const auto = value === 'AUTO';
-    const ai = viewingAI || value === 'AI';
+    const ai = viewingAI || value === 'AI' || value === 'HYBRID';
     byId('autoPanel').hidden = ai || !auto;
     byId('manualPanel').hidden = ai || value !== 'MANUAL';
     byId('aiPanel').hidden = !ai;
     for (const [id, selected] of [['driveAutoMode', !ai && auto], ['driveManualMode', !ai && value === 'MANUAL'], ['driveAIMode', ai]]) {
       byId(id).classList.toggle('active', selected);
       byId(id).setAttribute('aria-pressed', String(selected));
-      byId(id).disabled = id !== 'driveAIMode' && !['AUTO', 'MANUAL', 'AI'].includes(value);
+      byId(id).disabled = id !== 'driveAIMode' && !['AUTO', 'MANUAL', 'AI', 'HYBRID'].includes(value);
     }
     renderLog();
   }

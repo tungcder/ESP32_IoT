@@ -257,7 +257,7 @@ void setMotorSpeeds(int leftPercent, int rightPercent) {
 
 void applyAIMovement(RobotMovement movement, uint8_t speedPercent) {
   const bool turning = movement == RobotMovement::Left || movement == RobotMovement::Right;
-  const uint8_t limit = turning ? Config::MOTOR_TURN_SPEED_PERCENT : Config::MOTOR_SPEED_PERCENT;
+  const uint8_t limit = turning ? Config::AI_TURN_SPEED_PERCENT : Config::MOTOR_SPEED_PERCENT;
   const uint8_t duty = (255 * min(speedPercent, limit) + 50) / 100;
   if (!duty || movement == RobotMovement::Stopped) { stopCar(); return; }
   LedDirection led = LedDirection::Stop;

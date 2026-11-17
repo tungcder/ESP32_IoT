@@ -1,6 +1,7 @@
 #include "robot_status.h"
 #include "drive_mode.h"
 #include "ai_control.h"
+#include "obstacle_avoid.h"
 #include <esp_system.h>
 #include <string.h>
 
@@ -74,7 +75,8 @@ String robotStatusJson() {
   json += F(",\"mode_epoch\":"); json += getModeEpoch();
   json += F(",\"boot_id\":"); json += bootId;
   json += F(",\"ai_active\":"); json += aiControlActive() ? F("true") : F("false");
-  json += F(",\"distance_cm\":"); json += aiDistanceCm();
+  json += F(",\"hybrid_supported\":true,\"hybrid_state\":"); appendEscaped(json, hybridStateName());
+  json += F(",\"distance_cm\":"); json += hybridSearching() ? obstacleDistanceCm() : aiDistanceCm();
   json += F(",\"ai_safety\":"); appendEscaped(json, aiSafetyReason());
   json += F(",\"ai_sensor_state\":"); appendEscaped(json, aiSensorState());
   json += F(",\"ai_sensor_age_ms\":"); json += aiSensorAgeMs();

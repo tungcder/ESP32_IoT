@@ -161,7 +161,10 @@ class CameraReceiver:
                 frame, stamp = await latest.get()
                 if time.monotonic() - stamp > FRAME_TIMEOUT:
                     continue
-                image, jpeg = await asyncio.to_thread(self.decode, frame, stamp - last_preview >= 1 / 15,
+                # Annotated AI JPEGs are the only display source once the model
+                # is ready. Do not draw/encode a second, unused JPEG per frame.
+                preview = not self.service.model_ready and stamp - last_preview >= 1 / 15
+                image, jpeg = await asyncio.to_thread(self.decode, frame, preview,
                                                      self.service.alignment_config)
                 if jpeg:
                     last_preview = stamp

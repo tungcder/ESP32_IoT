@@ -20,7 +20,15 @@ namespace {
   unsigned long lastValidSensor = 0, lastSensorPrint = 0;
 
   void apply() {
-    if (requested == RobotMovement::Forward) {
+    if (getDriveMode() == DriveMode::Hybrid &&
+        (!hybridTracking() || millis() - centeredAt < Config::HYBRID_SERVO_SETTLE_MS ||
+         distance < 2 || distance > 400)) {
+      reason = "sensor_hold";
+      stopCar();
+      return;
+    }
+    if (requested == RobotMovement::Forward ||
+        (getDriveMode() == DriveMode::Hybrid && requested != RobotMovement::Stopped)) {
       if (distance < 2 || distance > 400) { reason = "invalid_distance"; stopCar(); return; }
       if (distance <= Config::AI_STOP_DISTANCE_CM) nearTarget = true;
       if (distance > Config::AI_RESUME_DISTANCE_CM) nearTarget = false;
@@ -29,6 +37,19 @@ namespace {
     reason = "ok";
     applyAIMovement(requested, speed);
   }
+}
+
+void prepareAITracking() {
+  requested = RobotMovement::Stopped;
+  speed = 0;
+  distance = 0;
+  nearTarget = true;
+  lastSensor = millis() - Config::AI_SENSOR_INTERVAL_MS;
+  setServoAngle(90);
+  centeredAt = millis();
+  sensorState = "warming_up";
+  lastValidSensor = 0;
+  reason = "warming_up";
 }
 
 void invalidateAIControl() {
@@ -50,23 +71,20 @@ String beginAIControl() {
   owner = value;
   lastSequence = 0;
   lastCommand = millis();
-  lastSensor = millis() - Config::AI_SENSOR_INTERVAL_MS;
-  setServoAngle(90);
-  centeredAt = millis();
-  sensorState = "warming_up";
-  lastValidSensor = 0;
+  prepareAITracking();
   lastSensorPrint = millis() - 1000;
   recordRobotEvent("AI session started");
   return owner;
 }
 
 bool ownsAIControl(const String& session) {
-  return getDriveMode() == DriveMode::AI && owner.length() && session == owner;
+  return (getDriveMode() == DriveMode::AI || getDriveMode() == DriveMode::Hybrid)
+      && owner.length() && session == owner;
 }
 
 bool acceptAICommand(const String& session, uint32_t sequence, RobotMovement movement, uint8_t percent) {
   updateAIControl(); // Expired sessions cannot be revived by a delayed packet.
-  if (!ownsAIControl(session) || sequence <= lastSequence) return false;
+  if (getDriveMode() != DriveMode::AI || !ownsAIControl(session) || sequence <= lastSequence) return false;
   lastSequence = sequence;
   lastCommand = millis();
   requested = movement;
@@ -75,16 +93,38 @@ bool acceptAICommand(const String& session, uint32_t sequence, RobotMovement mov
   return true;
 }
 
+bool acceptHybridCommand(const String& session, uint32_t sequence, HybridBehavior behavior,
+                         RobotMovement movement, uint8_t percent) {
+  updateAIControl();
+  if (getDriveMode() != DriveMode::Hybrid || !ownsAIControl(session) || sequence <= lastSequence) return false;
+  if (behavior != HybridBehavior::Track && (movement != RobotMovement::Stopped || percent != 0)) return false;
+  lastSequence = sequence;
+  lastCommand = millis();
+  setHybridBehavior(behavior);
+  requested = movement;
+  speed = percent;
+  // SEARCH heartbeats must never overwrite the local obstacle controller's action.
+  if (hybridTracking()) apply();
+  else reason = hybridSearching() ? "auto_search" : "hybrid_hold";
+  return true;
+}
+
 void updateAIControl() {
-  if (getDriveMode() != DriveMode::AI || !owner.length()) return;
+  if ((getDriveMode() != DriveMode::AI && getDriveMode() != DriveMode::Hybrid) || !owner.length()) return;
   if ((unsigned long)(millis() - lastCommand) > Config::COMMAND_TIMEOUT_MS) {
-    stopCar();
-    invalidateAIControl();
+    if (getDriveMode() == DriveMode::Hybrid) {
+      setDriveMode(DriveMode::Manual);
+      setServoAngle(90);
+    } else {
+      stopCar();
+      invalidateAIControl();
+    }
     reason = "command_timeout";
     recordRobotEvent("AI command timeout; session revoked");
     return;
   }
-  if ((unsigned long)(millis() - centeredAt) >= 300 &&
+  if (getDriveMode() == DriveMode::Hybrid && !hybridTracking()) return;
+  if ((unsigned long)(millis() - centeredAt) >= Config::HYBRID_SERVO_SETTLE_MS &&
       (unsigned long)(millis() - lastSensor) >= Config::AI_SENSOR_INTERVAL_MS) {
     lastSensor = millis();
     distance = getDistanceCm();

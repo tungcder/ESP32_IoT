@@ -11,19 +11,23 @@ Thông số nằm trong `include/config.h`. Firmware và Webots đọc cùng c�
 Mất Echo được coi là hướng chưa rõ. Xe chưa có cảm biến phía sau để kiểm tra đường lùi.
 Chế độ AI giữ servo ở 90° và dùng bộ điều khiển riêng; không chạy đồng thời với Auto.
 
-## Thông số giữ nguyên từ commit d431f59
+## Thông số hiện tại
 
 | Thông số | Giá trị | Tác dụng |
 |---|---:|---|
 | `MOTOR_SPEED_PERCENT` | 50 | Tiến/lùi PWM 128/255 |
-| `MOTOR_TURN_SPEED_PERCENT` | 50 | Giới hạn quay trái/phải |
+| `MOTOR_TURN_SPEED_PERCENT` | 80 | Quay trái/phải qua nút Manual trên web và trong Obstacle Auto; PWM 204/255 |
 | `AUTO_REVERSE_CM` | 8 | Quãng lùi đầu tiên, ước lượng theo thời gian |
 | `AUTO_RETRY_REVERSE_CM` | 12 | Quãng lùi khi hai bên bị chặn |
 | `AUTO_REVERSE_MS_PER_CM` | 50 | Lùi đầu 400 ms; lùi lại 600 ms |
 | `AUTO_LEFT_90_MS` | 780 | Thời gian quay trái |
 | `AUTO_RIGHT_90_MS` | 780 | Thời gian quay phải |
 
-AI yêu cầu tiến ở 50% PWM và quay ở 40–50% PWM, phù hợp giới hạn của firmware.
+Mức quay Manual/Obstacle Auto hiện là 80% PWM. Thời gian quay 780 ms
+vẫn là giá trị ước lượng cũ ở 50% PWM; cần đo và hiệu chỉnh lại ở 80% để đạt 90°.
+Phần né vật cản trong Auto + AI cũng dùng mức quay Auto này.
+
+AI yêu cầu tiến ở 50% PWM và quay ở 64–70% PWM, phù hợp giới hạn riêng của firmware.
 AI dừng tiến khi khoảng cách <=20 cm và chỉ tiếp tục khi >25 cm.
 Không có số đo hợp lệ thì AI chờ tại chỗ. Mất lệnh quá 500 ms thì firmware dừng và thu hồi phiên AI.
 

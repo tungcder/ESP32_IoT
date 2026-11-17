@@ -52,8 +52,11 @@ class AutoPilot:
         self.turn_duration = self.right_turn_time if right else self.left_turn_time
         self.enter("Turn", now)
 
-    def update(self, now, distance):
+    def update(self, now, distance, *, strict=False):
         elapsed = now - self.started
+        if strict and self.state not in ("Reverse", "Turn") and not (math.isfinite(distance) and 2 <= distance <= 400):
+            self.movement = "STOPPED"
+            return self.movement, self.angle
         if self.state == "CheckFront":
             if now - self.last_front < self.FRONT_INTERVAL - 1e-9:
                 return self.movement, self.angle
@@ -88,7 +91,7 @@ class AutoPilot:
             else:
                 self.start_reverse(now, self.retry_reverse_cm)
         elif self.state == "Turn" and elapsed >= self.turn_duration:
-            self.movement = "FORWARD"
+            self.movement = "STOPPED" if strict else "FORWARD"
             self.last_front = now - self.FRONT_INTERVAL
             self.enter("CheckFront", now)
         return self.movement, self.angle

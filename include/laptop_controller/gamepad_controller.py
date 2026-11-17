@@ -8,7 +8,7 @@ import sys
 # CONFIGURATION
 # ==========================================
 
-ESP32_IP = "172.20.10.2"  # Thay bằng IP hiện tại của ESP32
+ESP32_IP = "192.168.1.36"  # Thay bằng IP hiện tại của ESP32
 BASE_URL = f"http://{ESP32_IP}"
 
 # Flydigi Dune Fox - Left analog stick

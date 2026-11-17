@@ -1,7 +1,7 @@
 #pragma once
 #include <Arduino.h>
 
-enum class DriveMode : uint8_t { Manual, Auto, AI };
+enum class DriveMode : uint8_t { Manual, Auto, AI, Hybrid };
 
 void setDriveMode(DriveMode mode);
 DriveMode getDriveMode();

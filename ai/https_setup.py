@@ -4,7 +4,8 @@ from datetime import datetime, timedelta, timezone
 import ipaddress
 import json
 from pathlib import Path
-import socket
+
+from .network import local_network
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -16,12 +17,7 @@ CONFIG = Path(__file__).with_name("config.local.json")
 
 
 def default_ip():
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
-            probe.connect(("192.0.2.1", 80))
-            return probe.getsockname()[0]
-    except OSError:
-        raise ValueError("Khong tim duoc IP LAN. Chay setup.ps1 -LaptopIP IP-WiFi-laptop.") from None
+    return str(local_network().ip)
 
 
 def save_key(path, key):
@@ -87,6 +83,39 @@ def create_certificates(address, port=8090, directory=CERTS):
                     public_url=f"https://{address}:{port}", expires=certificate.not_valid_after_utc.isoformat())
     (directory / "info.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     return metadata
+
+
+def ensure_current_network(port=8090, address=None, config_path=CONFIG, directory=CERTS):
+    """Refresh only the server certificate when Wi-Fi changes; preserve the CA."""
+    if not 1024 <= port <= 65534:
+        raise ValueError("Cần cổng HTTPS trong khoảng 1024–65534.")
+    address = str(local_network(address).ip)
+    directory, config_path = Path(directory), Path(config_path)
+    refresh = True
+    try:
+        cert = x509.load_pem_x509_certificate((directory / "server.pem").read_bytes())
+        names = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+        refresh = (ipaddress.ip_address(address) not in names.get_values_for_type(x509.IPAddress)
+                   or cert.not_valid_after_utc < datetime.now(timezone.utc) + timedelta(days=30)
+                   or not (directory / "server-key.pem").exists()
+                   or not (directory / "info.json").exists())
+    except (OSError, ValueError, x509.ExtensionNotFound):
+        pass
+    if refresh:
+        create_certificates(address, port, directory)
+    saved = json.loads(config_path.read_text(encoding="utf-8")) if config_path.exists() else {}
+    public = f"https://{address}:{port}"
+    if saved.get("public_url") != public:
+        saved["public_url"] = public
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        temp = config_path.with_suffix(".tmp")
+        temp.write_text(json.dumps(saved, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp.replace(config_path)
+    # Keep setup metadata consistent even if only the port changed.
+    metadata = json.loads((directory / "info.json").read_text(encoding="utf-8"))
+    metadata.update(ip=address, port=port, public_url=public)
+    (directory / "info.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    return address
 
 
 def main():

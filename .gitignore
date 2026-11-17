@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 *.wbproj
+debug.log
 ai/config.local.json
 ai/config.local.tmp
 ai/logs/
@@ -11,3 +12,8 @@ ai/.certs/
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# Generated review reports and model evaluation artifacts
+/docs/ai_audit_*/
+/docs/*_20??-??-??.md
+/docs/*_20??-??-??.html

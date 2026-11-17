@@ -9,12 +9,52 @@ Không cần ứng dụng RTSP hoặc nhập URL luồng. Không thu âm.
 truy cập camera trong ngữ cảnh an toàn; HTTP bằng IP laptop không đáp ứng yêu cầu.
 Bỏ qua cảnh báo chứng chỉ không thay thế bước tin cậy.
 
-Ba mode có quyền điều khiển riêng: Obstacle Auto chạy trên ESP32, Wi-Fi Manual
+Chế độ **Auto + AI** tự chạy và né vật cản khi chưa thấy mục tiêu, dừng xác nhận
+3 ảnh mới rồi bám khi camera phát hiện mục tiêu. Mất mục tiêu thì dừng; sau
+1,5 giây chưa thấy lại và camera vẫn tốt, xe trở về tự né vật cản. Mất camera
+hoặc liên lạc thì kết thúc phiên, không tự chạy lại. Sau khi nạp firmware mới,
+ghép camera và bấm **Bắt đầu Auto + AI** trên bảng laptop.
+Xem [hướng dẫn Auto + AI](../docs/HYBRID_MODE.md).
+
+Ba mode độc lập vẫn có quyền điều khiển riêng: Obstacle Auto chạy trên ESP32, Wi-Fi Manual
 nhận lệnh từ web ESP32, AI chạy trên laptop. Chuyển mode sẽ dừng xe và thu hồi
 phiên AI cũ. Hai mode cũ tiếp tục dùng được khi laptop tắt. Quét QR, bật camera
 hoặc mở bảng AI **chưa làm xe chạy**; cần bấm Bắt đầu bám mục tiêu trên laptop.
 
 ## 1. Chuẩn bị laptop (một lần)
+
+### Tìm địa chỉ nhanh khi đổi Wi-Fi
+
+Trên **laptop đang chạy AI**, luôn mở **https://localhost:8090**. Địa chỉ này
+không đổi theo Wi-Fi; có thể lưu dấu trang. `localhost` trên iPhone chỉ chính
+iPhone, vì vậy iPhone phải dùng QR trong bảng AI.
+
+Sau khi đổi mạng, dừng chương trình AI bằng **Ctrl+C** rồi chạy lại:
+
+```powershell
+.\ai\run.ps1
+```
+
+Chương trình tự nhận IPv4 của laptop, cập nhật địa chỉ và chứng chỉ HTTPS cho
+mạng mới, rồi tạo QR đúng địa chỉ. Chứng chỉ gốc được giữ nguyên nên iPhone
+đã tin cậy laptop này không cần cài lại chứng chỉ chỉ vì đổi Wi-Fi.
+Nếu VPN hoặc nhiều adapter khiến nhận nhầm mạng, dùng
+`.\ai\run.ps1 -LaptopIP IP-WiFi-laptop`.
+
+Trong **Kết nối và hiệu chỉnh**, bấm **Tìm xe trong Wi-Fi**, chọn xe tìm được rồi
+bấm **Lưu cấu hình**. Chương trình tìm tối đa 254 địa chỉ gần laptop trong mạng
+nội bộ và chỉ đọc `/status`, không gửi lệnh lái. Phải dừng AI trước khi tìm xe.
+Nếu có nhiều xe, chương trình hiển thị tất cả để bạn chọn, không tự đổi xe.
+
+Cũng có thể tìm nhanh bằng PowerShell:
+
+```powershell
+.\ai\find.ps1
+```
+
+Xe cần bật nguồn, đã kết nối cùng mạng và dùng đúng SSID/mật khẩu trong
+`include/config.h`. Nếu Wi-Fi chặn thiết bị liên lạc hoặc xe ở ngoài phần mạng
+được tìm, lấy IP trong Serial Monitor rồi nhập trực tiếp.
 
 Cho laptop, iPhone và ESP32 vào cùng mạng LAN. ESP32 dùng Wi-Fi 2,4 GHz;
 iPhone/laptop có thể dùng 5 GHz nếu router cho các thiết bị liên lạc nhau.
@@ -107,12 +147,20 @@ xóa cấu hình/chứng chỉ và tắt trust trên iPhone.
 4. Trên iPhone phải có hình camera; thông báo **Laptop đã nhận … khung hình**
    phải tăng. Dashboard laptop hiển thị video và kết quả YOLOv8n.
 5. Luồng gửi giới hạn 15 FPS, cạnh dài tối đa 640 px và bitrate mục tiêu tối đa
-   700 kbit/s nếu Safari hỗ trợ. Laptop lấy từng ảnh mới qua HTTPS, chỉ một yêu
-   cầu ảnh đang chạy; không dùng hàng đợi MJPEG tích ảnh cũ. Ảnh xem quá cũ bị bỏ.
+   500 kbit/s nếu Safari hỗ trợ; ưu tiên giữ nhịp hình khi mạng yếu. Laptop chờ
+   ảnh AI mới qua HTTPS (mỗi lần tối đa 250 ms), chỉ một yêu cầu ảnh đang chạy,
+   nhận xong chờ ngay ảnh tiếp theo; không tích hàng đợi ảnh cũ. Ảnh quá cũ bị bỏ.
    Hai đường biên và đường tâm được vẽ giống nhau trên cả ảnh YOLO và ảnh
    camera dự phòng, theo ngưỡng trong model. Web giải mã xong mới vẽ khung
    hình lên canvas; bỏ lỡ một ảnh không làm chớp tắt hình còn mới. Ảnh quá
    0,5 giây bị ẩn. Đường chỉ được vẽ lên bản sao hiển thị, không vào đầu vào YOLO.
+   Khi model đã sẵn sàng, bỏ bước nén JPEG camera dự phòng; kết quả điều khiển
+   được cập nhật trước khi nén ảnh hiển thị (JPEG chất lượng 70). OpenCV dùng
+   một luồng để tránh tranh CPU với ONNX và giải mã WebRTC. AI được đánh thức
+   ngay khi có ảnh mới, không đợi chu kỳ kiểm tra 10 ms. Mỗi bước lấy ảnh mới
+   nhất và bỏ ảnh trung gian khi xử lý không kịp. Màn hình hiển thị tốc độ camera,
+   AI và hiển thị thực tế; tuổi kết quả tính từ lúc laptop nhận, chưa gồm trễ
+   chụp trên iPhone. Nhật ký chỉ truyền sự kiện mới và vẽ lại khi có thay đổi.
 6. Giữ Safari ở trang camera, màn hình bật. Web yêu cầu giữ sáng nếu iOS hỗ trợ;
    nếu máy vẫn ngủ, chỉnh Tự động khóa phù hợp rồi khôi phục sau buổi thử.
 
@@ -127,8 +175,11 @@ không tắt camera. Ngưỡng dừng phiên AI khi ảnh/kết quả quá 0,5 g
 
 ## 4. Kết nối ESP32 và thử thực tế
 
-Firmware phải hỗ trợ giao thức AI của project. Bản tích hợp AI trên nền code Tùng cần nạp firmware mới
-để ESP32 chấp nhận lệnh quay lớn hơn 50%. Nếu chưa nạp bản hiện tại:
+Firmware phải hỗ trợ giao thức AI của project. Bản tích hợp AI trên nền code Tùng
+nhận lệnh tiến 50% PWM và quay AI 64–70% PWM. Cần nạp lại firmware để ESP32
+chấp nhận mức quay AI mới; Auto và nút quay Manual trên web dùng mức quay 80% PWM.
+Tiến/lùi vẫn 50% PWM. Mức quay Auto đã thay đổi nên cần hiệu chỉnh lại thời gian
+quay trái/phải trên xe thật để đạt góc mong muốn:
 
 ```powershell
 pio run -e esp32dev
@@ -182,7 +233,7 @@ không thay thế thử cảm biến, mạch và động cơ thực tế.
 - Khóa qua 3 ảnh mới ổn định. Khi tâm nằm trong hai line tại 35% và 65%
   chiều rộng ảnh (kể cả chạm biên), tiến thẳng 50% PWM, không chỉnh hướng.
 - Vượt biên: gửi STOPPED, chờ xe xác nhận dừng ít nhất 150 ms và lấy ảnh mới
-  rồi xoay tại chỗ. Quay tối đa 50% PWM, giảm dần về 40% khi đến gần vùng dừng căn giữa. Căn liên tục
+  rồi xoay tại chỗ. Quay tối đa 70% PWM, giảm dần về 64% khi đến gần vùng dừng căn giữa. Căn liên tục
   đến vùng 40–60%, dừng quay và xác nhận 3 ảnh mới liên tiếp trước khi tiến lại.
   Đổi chiều quay cũng qua bước dừng. Không tự lùi.
 - Cấu hình chạy của ứng dụng là `AlignmentConfig` (±15%/±10%), dùng chung cho
@@ -228,6 +279,8 @@ quá hạn không dùng lái xe. Độ trễ chụp thật trên iPhone vẫn c�
 | Có video nhưng không bám | Đúng vật `target`, đủ sáng; đã lưu IP ESP32; model sẵn sàng; bấm Bắt đầu |
 | AI nhận mục tiêu nhưng không tiến, báo Lỗi cảm biến | Khi phiên AI đang bật, xem Serial `[AI sonar]`. Nếu `no_echo`/0 cm: kiểm tra nguồn HC-SR04, GND chung, TRIG GPIO16, ECHO GPIO17 qua chia áp về 3,3 V, servo hướng trước, vật phẳng ở 30–50 cm. Không bỏ chặn số đo lỗi để ép xe tiến |
 | AI dừng vì quá chậm | Kiểm tra Wi-Fi/CPU, đóng tác vụ nặng; theo dõi tuổi ảnh và thời gian inference; tuổi ảnh trên web tính từ lúc laptop nhận, không đo đủ trễ chụp → hiển thị |
+| AI kết thúc vì `URLError` / `TimeoutError` | Xem nguyên nhân và thời gian trong log: `timed out` là hết thời gian chờ kết nối/phản hồi HTTP (socket mặc định 300 ms). Thử `ping -n 20 IP-ESP32` khi xe đứng yên; nếu mất gói hoặc trễ cao, kiểm tra Wi-Fi, vị trí router và nguồn xe. Nếu chỉ lỗi khi động cơ chạy, kiểm tra nguồn và nhiễu động cơ. Không tăng watchdog để che lỗi mạng |
+| Log báo HTTP 409, phiên hết hạn | ESP32 đã từ chối phiên/lệnh: có thể đã quá 500 ms không nhận lệnh hợp lệ hoặc đã đổi mode. Kiểm tra các lỗi mạng trước đó; phiên cũ không tự chạy lại. Khắc phục kết nối rồi chủ động bấm Bắt đầu |
 | Auto/Manual từ dashboard mở lỗi | Kiểm tra địa chỉ HTTP ESP32 trong cấu hình và LAN; có thể mở web ESP32 trực tiếp |
 
 **Khi laptop đổi IP/mạng:** dừng server (Ctrl+C), chạy lại setup với `-LaptopIP`
@@ -259,20 +312,17 @@ ESP32 dùng `mode_epoch` và session để chặn lệnh cũ sau khi đổi mode
 | GET `/status` | Mode, epoch, boot ID, chuyển động, khoảng cách AI, log |
 | GET `/driveauto`, `/drivemanual` | Header `X-Mode-Epoch` hiện tại |
 | POST `/ai/claim` | Header epoch; nhận session ngẫu nhiên, một chủ AI |
-| POST `/ai/command` | Form session, seq tăng dần, movement FORWARD/LEFT/RIGHT/STOPPED, speed 0–80 khi quay, 0–50 khi tiến/dừng |
+| POST `/ai/command` | Form session, seq tăng dần, movement FORWARD/LEFT/RIGHT/STOPPED, speed 0–70 khi quay (AI dùng 64–70), 0–50 khi tiến/dừng |
 | POST `/ai/release` | Hủy đúng session, không dừng mode khác |
 | POST `/estop` | Dừng tất cả, thu hồi AI, về Manual |
 
 Giao diện ESP32 đã gửi epoch tự động. `src/ai_control.cpp` giữ watchdog và chặn
 động cơ theo sonar ngay trên xe, độc lập kết nối camera/laptop.
 
-## Kiểm tra logic bám mục tiêu
+## Áp dụng bản cập nhật
 
-```powershell
-.\ai\.venv\Scripts\python.exe -B -m unittest discover -s ai/tests -v
-node ai/tests/test_dashboard.js
-```
-
-Các kiểm tra dùng vị trí mục tiêu giả lập và BridgeState của Webots để xác minh
-chuỗi lệnh, xác nhận dừng, thời gian chờ, 3 ảnh căn tâm mới, mất mục tiêu, sonar
-và timeout camera. Kiểm tra thực tế với iPhone vẫn cần quét QR và bật camera.
+Sau khi cập nhật code, dừng server cũ bằng Ctrl+C rồi chạy lại `ai/run.ps1`.
+Tải lại trang laptop và quét QR mới trên iPhone (đóng trang camera cũ), để cả
+server lẫn Safari dùng cấu hình truyền hình mới. Không cần nạp lại ESP32 cho
+những thay đổi truyền hình này. Tối ưu này không thay thế việc khắc phục mất
+gói Wi-Fi; watchdog ảnh/lệnh 500 ms và yêu cầu chủ động bắt đầu lại vẫn giữ nguyên.

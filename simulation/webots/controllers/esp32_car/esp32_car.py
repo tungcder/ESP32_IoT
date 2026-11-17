@@ -79,6 +79,9 @@ class BridgeState:
         self.ai_speed = 0
         self.ai_hold = True
         self.ai_safety = "idle"
+        self.hybrid_state = "HOLD"
+        self.hybrid_changed_at = clock()
+        self.hybrid_sensor_ready = False
         self.speed_percent = config_integer("MOTOR_SPEED_PERCENT")
         self.distance_cm = 200.0
         self.sim_time = 0.0
@@ -102,7 +105,7 @@ class BridgeState:
                             "mode": self.drive_mode, "message": message})
 
     def update_leds(self):
-        if self.drive_mode != "AI":
+        if self.drive_mode != "AI" and not (self.drive_mode == "HYBRID" and self.hybrid_state == "TRACK"):
             self.speed_percent = (config_integer("MOTOR_TURN_SPEED_PERCENT") if self.movement in ("LEFT", "RIGHT")
                                   else 0 if self.movement == "STOPPED" else config_integer("MOTOR_SPEED_PERCENT"))
         self.leds = list({
@@ -119,7 +122,9 @@ class BridgeState:
             self.movement = "STOPPED"
             self.update_leds()
             self.log("Manual command timeout")
-        if self.drive_mode == "AI" and self.ai_session and self.clock() - self.last_command > self.timeout:
+        if self.drive_mode in ("AI", "HYBRID") and self.ai_session and self.clock() - self.last_command > self.timeout:
+            if self.drive_mode == "HYBRID":
+                self.select_mode("MANUAL")
             self.movement = "STOPPED"
             self.ai_session = None
             self.ai_requested = "STOPPED"
@@ -136,17 +141,20 @@ class BridgeState:
         self.ai_requested = "STOPPED"
         self.ai_hold = True
         self.ai_safety = "idle"
+        self.hybrid_state = "HOLD"
+        self.hybrid_changed_at = self.clock()
+        self.hybrid_sensor_ready = False
         self.speed_percent = config_integer("MOTOR_SPEED_PERCENT")
         self.reset_requested = True
         self.last_command = self.clock()
         self.update_leds()
 
-    def claim_ai(self, epoch):
+    def claim_ai(self, epoch, *, hybrid=False):
         with self.lock:
             self.tick()
             if epoch != self.mode_epoch or self.ai_session:
                 return None
-            self.select_mode("AI")
+            self.select_mode("HYBRID" if hybrid else "AI")
             self.ai_session = secrets.token_hex(16)
             self.ai_sequence = 0
             self.log("AI session started")
@@ -155,7 +163,9 @@ class BridgeState:
     def apply_ai(self):
         movement, speed = self.ai_requested, self.ai_speed
         self.ai_safety = "ok"
-        if movement == "FORWARD":
+        if self.drive_mode == "HYBRID" and not self.hybrid_sensor_ready:
+            movement, speed, self.ai_safety = "STOPPED", 0, "warming_up"
+        if movement == "FORWARD" or (self.drive_mode == "HYBRID" and movement != "STOPPED"):
             if not 2 <= self.distance_cm <= 400:
                 movement, speed, self.ai_safety = "STOPPED", 0, "invalid_distance"
             else:
@@ -173,24 +183,43 @@ class BridgeState:
         self.speed_percent = speed
         self.update_leds()
 
-    def command_ai(self, session, sequence, movement, speed):
-        limit = config_integer("MOTOR_TURN_SPEED_PERCENT") if movement in ("LEFT", "RIGHT") else config_integer("MOTOR_SPEED_PERCENT")
+    def command_ai(self, session, sequence, movement, speed, *, behavior=None):
+        limit = config_integer("AI_TURN_SPEED_PERCENT") if movement in ("LEFT", "RIGHT") else config_integer("MOTOR_SPEED_PERCENT")
         if movement not in ("FORWARD", "LEFT", "RIGHT", "STOPPED") or not 0 <= speed <= limit or not 0 < sequence <= 0xffffffff:
             raise ValueError("Invalid AI movement, sequence or speed")
+        if behavior is not None and (behavior not in ("HOLD", "SEARCH", "TRACK")
+                                    or behavior != "TRACK" and (movement != "STOPPED" or speed != 0)):
+            raise ValueError("Invalid hybrid behavior or motor command")
         with self.lock:
             self.tick()
-            if self.drive_mode != "AI" or not self.ai_session or session != self.ai_session or sequence <= self.ai_sequence:
+            expected_mode = "HYBRID" if behavior is not None else "AI"
+            if self.drive_mode != expected_mode or not self.ai_session or session != self.ai_session or sequence <= self.ai_sequence:
                 return None
+            if behavior is not None and behavior != self.hybrid_state:
+                self.movement = "STOPPED"
+                self.hybrid_state = behavior
+                self.hybrid_changed_at = self.clock()
+                self.hybrid_sensor_ready = False
+                self.ai_hold = True
+                self.reset_requested = True
+                self.log("Hybrid: " + behavior)
             self.ai_sequence = sequence
             self.ai_requested, self.ai_speed = movement, speed
             self.last_command = self.clock()
-            self.apply_ai()
+            if behavior is None or behavior == "TRACK":
+                self.apply_ai()
+            else:
+                self.update_leds()
             return self.snapshot()
 
     def release_ai(self, session):
         with self.lock:
-            if not self.ai_session or session != self.ai_session or self.drive_mode != "AI":
+            if not self.ai_session or session != self.ai_session or self.drive_mode not in ("AI", "HYBRID"):
                 return False
+            if self.drive_mode == "HYBRID":
+                self.select_mode("MANUAL")
+                self.log("Hybrid session ended")
+                return True
             self.ai_session = None
             self.ai_requested, self.movement = "STOPPED", "STOPPED"
             self.speed_percent = 0
@@ -236,14 +265,16 @@ class BridgeState:
             return {"backend": "webots", "drive_mode": self.drive_mode,
                     "mode_epoch": self.mode_epoch, "boot_id": self.boot_id,
                     "ai_active": bool(self.ai_session), "ai_safety": self.ai_safety,
+                    "hybrid_supported": True,
+                    "hybrid_state": self.hybrid_state if self.drive_mode == "HYBRID" else "IDLE",
                     "speed_percent": self.speed_percent,
                     "uptime_ms": int(self.clock() * 1000),
                     "movement": self.movement,
-                    "leds": list(self.leds), "distance_cm": round(self.distance_cm, 1),
+                    "leds": list(self.leds), "distance_cm": (0 if self.drive_mode == "HYBRID" and self.hybrid_state == "TRACK" and not self.hybrid_sensor_ready else round(self.distance_cm, 1)),
                     "sim_time": round(self.sim_time, 3), "pose": self.pose,
                     "auto_state": self.pilot.state, "events": list(self.events),
                     "avoidance_algorithm": "center_then_left_right",
-                    "scanner_angle_deg": self.pilot.angle if self.drive_mode == "AUTO" else 90,
+                    "scanner_angle_deg": self.pilot.angle if self.drive_mode == "AUTO" or self.drive_mode == "HYBRID" and self.hybrid_state == "SEARCH" else 90,
                     "turn_duration_ms": round(self.pilot.turn_duration * 1000),
                     "timeout_ms": int(self.timeout * 1000)}
 
@@ -256,16 +287,24 @@ class BridgeState:
             angle = 90
             if self.reset_requested or self.previous_mode != self.drive_mode:
                 self.pilot.reset(now)
-            if self.drive_mode == "AUTO":
+            searching = self.drive_mode == "HYBRID" and self.hybrid_state == "SEARCH"
+            settled = self.clock() - self.hybrid_changed_at >= config_integer("HYBRID_SERVO_SETTLE_MS") / 1000
+            if self.drive_mode == "AUTO" or searching and settled:
                 old_state = self.pilot.state
                 old_movement = self.movement
-                self.movement, angle = self.pilot.update(now, self.distance_cm)
+                self.movement, angle = self.pilot.update(now, self.distance_cm, strict=searching)
                 if old_state != self.pilot.state:
                     self.log("AUTO: " + self.pilot.state)
                 if old_movement != self.movement:
                     self.log("Movement: " + self.movement)
             elif self.drive_mode == "AI" and self.ai_session:
                 self.apply_ai()
+            elif self.drive_mode == "HYBRID":
+                if self.hybrid_state == "TRACK" and self.ai_session:
+                    self.hybrid_sensor_ready = settled
+                    self.apply_ai()
+                else:
+                    self.movement = "STOPPED"
             self.previous_mode = self.drive_mode
             self.reset_requested = False
             self.update_leds()
@@ -323,13 +362,14 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/estop":
                 state.emergency()
                 result = {"stopped": True}
-            elif path == "/ai/claim":
-                result = state.claim_ai(int(self.headers.get("X-Mode-Epoch", "-1")))
-            elif path == "/ai/command":
+            elif path in ("/ai/claim", "/hybrid/claim"):
+                result = state.claim_ai(int(self.headers.get("X-Mode-Epoch", "-1")), hybrid=path == "/hybrid/claim")
+            elif path in ("/ai/command", "/hybrid/command"):
                 result = state.command_ai(data.get("session", [""])[0], int(data.get("seq", ["0"])[0]),
-                                          data.get("movement", [""])[0], int(data.get("speed", ["0"])[0]))
+                                          data.get("movement", [""])[0], int(data.get("speed", ["0"])[0]),
+                                          behavior=data.get("behavior", [""])[0] if path == "/hybrid/command" else None)
             elif path == "/ai/release":
-                result = {"released": True} if state.release_ai(data.get("session", [""])[0]) else None
+                result = state.snapshot() if state.release_ai(data.get("session", [""])[0]) else None
             else:
                 self.reply(404, b"Not found", "text/plain")
                 return

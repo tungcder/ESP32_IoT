@@ -34,9 +34,6 @@ simulation/
       esp32_car.py             Kết nối HTTP với robot Webots
       autopilot.py             Logic tránh vật cản trong mô phỏng
       panel.html               Thông tin cảm biến và bước AUTO trong mô phỏng
-    tests/
-      test_controller.py       Kiểm tra controller và HTTP
-      test_controls.js         Kiểm tra giao diện chung của firmware và Webots
 ```
 
 Controller dùng lại giao diện trong `src/web_page.cpp` và các giá trị trong

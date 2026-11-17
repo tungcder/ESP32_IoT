@@ -5,8 +5,8 @@ import math
 from yolov8n.target_alignment import AlignmentConfig
 
 AI_FORWARD_SPEED_PERCENT = 50
-AI_TURN_SPEED_PERCENT = 50
-AI_MIN_TURN_SPEED_PERCENT = 40
+AI_TURN_SPEED_PERCENT = 70
+AI_MIN_TURN_SPEED_PERCENT = 64
 
 
 @dataclass(frozen=True)

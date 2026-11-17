@@ -45,7 +45,8 @@ namespace {
   void handleAIClaim() {
     if (!currentEpoch()) return;
     if (aiControlActive()) { server.send(409, "text/plain", "AI owner already active"); return; }
-    setDriveMode(DriveMode::AI);
+    const bool hybrid = server.uri() == "/hybrid/claim";
+    setDriveMode(hybrid ? DriveMode::Hybrid : DriveMode::AI);
     const String session = beginAIControl();
     server.send(200, "application/json", "{\"session\":\"" + session + "\",\"mode_epoch\":" + String(getModeEpoch()) + "}");
   }
@@ -60,11 +61,23 @@ namespace {
     else if (movement == "STOPPED") value = RobotMovement::Stopped;
     else { server.send(400, "text/plain", "Invalid AI movement"); return; }
     const uint8_t limit = value == RobotMovement::Left || value == RobotMovement::Right
-                            ? Config::MOTOR_TURN_SPEED_PERCENT : Config::MOTOR_SPEED_PERCENT;
+                            ? Config::AI_TURN_SPEED_PERCENT : Config::MOTOR_SPEED_PERCENT;
     if (!number(server.arg("seq"), sequence) || !number(server.arg("speed"), speed) || speed > limit) {
       server.send(400, "text/plain", "Invalid sequence or speed"); return;
     }
-    if (!acceptAICommand(server.arg("session"), sequence, value, speed)) {
+    bool accepted = false;
+    if (server.uri() == "/hybrid/command") {
+      const String behavior = server.arg("behavior");
+      HybridBehavior next;
+      if (behavior == "SEARCH") next = HybridBehavior::Search;
+      else if (behavior == "TRACK") next = HybridBehavior::Track;
+      else if (behavior == "HOLD") next = HybridBehavior::Hold;
+      else { server.send(400, "text/plain", "Invalid hybrid behavior"); return; }
+      accepted = acceptHybridCommand(server.arg("session"), sequence, next, value, speed);
+    } else {
+      accepted = acceptAICommand(server.arg("session"), sequence, value, speed);
+    }
+    if (!accepted) {
       server.send(409, "text/plain", "Expired AI session or stale sequence"); return;
     }
     server.send(200, "application/json", robotStatusJson());
@@ -72,10 +85,15 @@ namespace {
 
   void handleAIRelease() {
     if (!ownsAIControl(server.arg("session"))) { server.send(409, "text/plain", "AI session no longer owned"); return; }
-    stopCar();
-    invalidateAIControl();
+    if (getDriveMode() == DriveMode::Hybrid) {
+      setDriveMode(DriveMode::Manual);
+      setServoAngle(90);
+    } else {
+      stopCar();
+      invalidateAIControl();
+    }
     recordRobotEvent("AI session ended");
-    server.send(200, "text/plain", "AI STOPPED");
+    server.send(200, "application/json", robotStatusJson());
   }
 
   void handleEmergencyStop() {
@@ -282,6 +300,8 @@ void setupWiFiAndServer() {
   const char* headers[] = {"X-Mode-Epoch"};
   server.collectHeaders(headers, 1);
   server.on("/ai/claim", HTTP_POST, handleAIClaim);
+  server.on("/hybrid/claim", HTTP_POST, handleAIClaim);
+  server.on("/hybrid/command", HTTP_POST, handleAICommand);
   server.on("/ai/command", HTTP_POST, handleAICommand);
   server.on("/ai/release", HTTP_POST, handleAIRelease);
   server.on("/estop", HTTP_POST, handleEmergencyStop);
