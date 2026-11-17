@@ -19,7 +19,7 @@ WorldInfo {
 }
 Viewpoint {
   orientation 0.3174551070493352 -0.3393129055520195 -0.8854880050763767 4.657386659958241
-  position 0.43555280798620055 -8.53283367602763 7.0597264094558785
+  position -1.5658433259285278 -7.140687310452939 5.460498098663578
 }
 Background {
   skyColor [
@@ -150,8 +150,8 @@ Solid {
   boundingObject USE SIDE_OBSTACLE
 }
 DEF CAR Robot {
-  translation 1.1481742992933794 1.6068904163495863 0.06492598961350891
-  rotation -3.926774837524561e-05 -2.4223002700663862e-06 0.9999999992260882 -3.0183752610176535
+  translation 1.8462567548633195 1.641103306560269 0.06492600641567468
+  rotation 4.011956826115143e-05 -6.490456480345101e-05 -0.999999997088909 -1.1067795330716832
   children [
     Shape {
       appearance PBRAppearance {
@@ -165,7 +165,7 @@ DEF CAR Robot {
     }
     HingeJoint {
       jointParameters HingeJointParameters {
-        position 450.1610949609057
+        position 2590.7014431434573
         axis 0 1 0
         anchor 0 0.1 -0.025
       }
@@ -177,7 +177,7 @@ DEF CAR Robot {
       ]
       endPoint Solid {
         translation 0 0.1 -0.025
-        rotation -0.3281697699432183 -0.6679463309652146 -0.6679463309619443 2.507400311702276
+        rotation -0.40245717136468295 0.6473129943162119 0.6473129943130431 2.3763469898806022
         children [
           Shape {
             appearance DEF RUBBER PBRAppearance {
@@ -199,13 +199,13 @@ DEF CAR Robot {
           density -1
           mass 0.04
         }
-        linearVelocity 1.6068472963993883e-17 -8.587791300967071e-17 8.881823181191721e-17
-        angularVelocity -4.554007090450456e-15 -2.4894914039516487e-17 8.246882311401055e-16
+        linearVelocity -0.08950915261234202 -0.1788533022480549 -2.24280256401275e-07
+        angularVelocity 4.471333625294899 -2.2377302225521487 4.4389853066042866e-08
       }
     }
     HingeJoint {
       jointParameters HingeJointParameters {
-        position 507.40769911493794
+        position 2793.6262768531687
         axis 0 1 0
         anchor 0 -0.1 -0.025
       }
@@ -217,7 +217,7 @@ DEF CAR Robot {
       ]
       endPoint Solid {
         translation 0 -0.1 -0.025
-        rotation 0.5929317108655358 0.5693996778420427 0.5693996778392543 4.212004690410195
+        rotation 0.2682919961572618 0.6811825764075652 0.6811825764042291 3.6658310548137107
         children [
           Shape {
             appearance USE RUBBER
@@ -231,8 +231,8 @@ DEF CAR Robot {
           density -1
           mass 0.04
         }
-        linearVelocity 3.0350597007365597e-17 6.064183678376944e-16 -1.332264605273509e-16
-        angularVelocity 3.1717025947942424e-15 1.4790049767431405e-15 1.0024833467941427e-15
+        linearVelocity -0.08950917270672462 -0.17885329533951244 -2.9093633225632415e-07
+        angularVelocity 4.471333625591665 -2.2377302224607685 4.5510575145951476e-08
       }
     }
     Solid {
@@ -271,7 +271,7 @@ DEF CAR Robot {
     }
     HingeJoint {
       jointParameters HingeJointParameters {
-        position 1.7269647733616568e-18
+        position -0.01917945562765007
         axis 0 0 1
         anchor 0.1 0 0.045
       }
@@ -286,7 +286,7 @@ DEF CAR Robot {
       ]
       endPoint Solid {
         translation 0.1 0 0.045
-        rotation -0.11975493954418881 0.033638927153136274 -0.9922334287025173 1.1329049285483049e-15
+        rotation -7.0544932671888e-15 2.0547812453648056e-15 -1 0.01917945562766091
         children [
           Shape {
             appearance PBRAppearance {
@@ -316,8 +316,8 @@ DEF CAR Robot {
           density -1
           mass 0.02
         }
-        linearVelocity 4.357679570852153e-17 2.3403755807712287e-15 -1.110225538243756e-16
-        angularVelocity -1.3322629022691434e-15 3.640960038520182e-16 4.644514215343907e-16
+        linearVelocity -0.08950996626478086 -0.17885496898238146 2.3468535870415137e-06
+        angularVelocity 3.132993784943947e-05 2.00044303733735e-06 0.22832676476163552
       }
     }
     LED {
@@ -364,6 +364,7 @@ DEF CAR Robot {
             baseColor 0.4 0.1 0.1
             roughness 1
             metalness 0
+            emissiveColor 1 0.15000000596046448 0.10000000149011612
           }
           geometry USE LED_SHAPE
         }
@@ -381,6 +382,7 @@ DEF CAR Robot {
             baseColor 0.4 0.1 0.1
             roughness 1
             metalness 0
+            emissiveColor 1 0.15000000596046448 0.10000000149011612
           }
           geometry USE LED_SHAPE
         }
@@ -399,6 +401,6 @@ DEF CAR Robot {
   }
   controller "esp32_car"
   supervisor TRUE
-  linearVelocity 3.358804061717061e-17 -4.890255995296463e-16 -9.267948727305655e-17
-  angularVelocity -2.1369862940994647e-15 4.901400232114182e-16 4.809012406274748e-16
+  linearVelocity -0.08950944324560862 -0.17885387989892365 -2.6284561412044726e-07
+  angularVelocity 2.3491281879673285e-05 -1.1376332522928627e-05 -3.938132792060273e-08
 }
