@@ -106,7 +106,8 @@ class BridgeState:
 
     def update_leds(self):
         if self.drive_mode != "AI" and not (self.drive_mode == "HYBRID" and self.hybrid_state == "TRACK"):
-            self.speed_percent = (config_integer("MOTOR_TURN_SPEED_PERCENT") if self.movement in ("LEFT", "RIGHT")
+            self.speed_percent = (config_integer("AUTO_TURN_SPEED_PERCENT" if self.drive_mode in ("AUTO", "HYBRID")
+                                                else "MOTOR_TURN_SPEED_PERCENT") if self.movement in ("LEFT", "RIGHT")
                                   else 0 if self.movement == "STOPPED" else config_integer("MOTOR_SPEED_PERCENT"))
         self.leds = list({
             "STOPPED": (False, False, False, False),

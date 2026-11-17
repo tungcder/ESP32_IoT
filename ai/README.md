@@ -5,6 +5,18 @@ Dùng Safari trên iPhone 13 để truyền video qua **WebRTC trong mạng LAN*
 Hằng ngày: **quét QR → mở Safari → Bật camera trước → Cho phép**.
 Không cần ứng dụng RTSP hoặc nhập URL luồng. Không thu âm.
 
+Hai chế độ dùng chung model ONNX nhưng có điều kiện nhận mục tiêu riêng:
+
+- **Chỉ AI:** nhận lớp `target` khi confidence >=0,5, hiển thị bounding box và
+  dùng trung điểm box để căn hướng; không cần xác minh tâm vòng bia.
+- **Auto + AI:** chỉ hiển thị box và bám khi confidence **>0,8** và xác nhận
+  được tâm từ ít nhất 3 vòng bia đồng tâm. Dùng tâm vòng bia để căn hướng.
+  Đúng 80% chưa đủ; điều kiện áp dụng cả lúc nhận mới và đang bám. Khi không
+  có mục tiêu hợp lệ, giữ luồng tự né vật cản/tìm mục tiêu của Hybrid.
+
+Mỗi lần bắt đầu, xe giữ dừng và chờ ảnh mới theo chế độ đã chọn; kết quả,
+box hiển thị và trạng thái bám của phiên trước không được dùng lại.
+
 **Lần đầu phải cài và tin cậy chứng chỉ HTTPS trên iPhone.** Safari chỉ cho web
 truy cập camera trong ngữ cảnh an toàn; HTTP bằng IP laptop không đáp ứng yêu cầu.
 Bỏ qua cảnh báo chứng chỉ không thay thế bước tin cậy.
@@ -176,9 +188,12 @@ không tắt camera. Ngưỡng dừng phiên AI khi ảnh/kết quả quá 0,5 g
 ## 4. Kết nối ESP32 và thử thực tế
 
 Firmware phải hỗ trợ giao thức AI của project. Bản tích hợp AI trên nền code Tùng
-nhận lệnh tiến 50% PWM và quay AI 64–70% PWM. Cần nạp lại firmware để ESP32
-chấp nhận mức quay AI mới; Auto và nút quay Manual trên web dùng mức quay 80% PWM.
-Tiến/lùi vẫn 50% PWM. Mức quay Auto đã thay đổi nên cần hiệu chỉnh lại thời gian
+nhận lệnh tiến 45% PWM và quay AI 58–62% PWM. Cần nạp lại firmware để ESP32
+chấp nhận mức quay AI mới; Auto dùng mức quay 70% PWM; nút quay Manual trên web dùng 80% PWM.
+Trên xe thật, đầu ra AI được bù lệch: đi thẳng trái 45%, phải 50%; khi quay,
+trái 53–57%, phải 58–62%. Mức yêu cầu từ laptop là 45% khi tiến và 58–62% khi quay.
+Mức bù cũng áp dụng khi Auto + AI đang bám mục tiêu. Manual/Obstacle Auto tiến/lùi
+vẫn 50% PWM. Mức quay Auto đã thay đổi nên cần hiệu chỉnh lại thời gian
 quay trái/phải trên xe thật để đạt góc mong muốn:
 
 ```powershell
@@ -207,8 +222,8 @@ Thử theo thứ tự:
    phía trước, HC-SR04 hướng trước. Đưa đúng vật lớp `target` model đã học
    vào hình, bấm **Bắt đầu bám mục tiêu**. Quan sát lệnh và chuyển động
    ESP32 xác nhận trong log; kiểm tra trái/phải đúng hướng trước khi chạy sàn.
-3. **Dừng 20 cm:** thử chậm trên sàn thoáng, đưa vật phía trước gần cảm biến.
-   Xe dừng tiến khi sonar <=20 cm, chỉ tiến lại khi >25 cm. Đối chiếu số đo
+3. **Dừng 50 cm:** thử chậm trên sàn thoáng, đưa vật phía trước gần cảm biến.
+   Xe dừng tiến khi sonar <=50 cm, chỉ tiến lại khi >55 cm. Đối chiếu số đo
    dashboard với thước, điều chỉnh tốc độ nếu cần.
 4. **Vùng cho phép và căn tâm:** khi tâm mục tiêu còn trong hai line 35–65%, xe
    giữ hướng tiến. Đưa tâm vượt line trái/phải: xe dừng, chờ xác nhận STOPPED
@@ -231,15 +246,16 @@ không thay thế thử cảm biến, mạch và động cơ thực tế.
 - Model `yolov8n/best.onnx`, lớp `target` ID 11; nạp một lần bằng ONNX Runtime,
   mặc định CPU. Không nhận diện mọi đồ vật thành mục tiêu: dùng đúng lớp đã train.
 - Khóa qua 3 ảnh mới ổn định. Khi tâm nằm trong hai line tại 35% và 65%
-  chiều rộng ảnh (kể cả chạm biên), tiến thẳng 50% PWM, không chỉnh hướng.
+  chiều rộng ảnh (kể cả chạm biên), tiến thẳng với lệnh 45% PWM (trái 45%, phải 50%), không chỉnh hướng.
 - Vượt biên: gửi STOPPED, chờ xe xác nhận dừng ít nhất 150 ms và lấy ảnh mới
-  rồi xoay tại chỗ. Quay tối đa 70% PWM, giảm dần về 64% khi đến gần vùng dừng căn giữa. Căn liên tục
+  rồi xoay tại chỗ. Lệnh quay tối đa 62% PWM, giảm dần về 58% khi đến gần vùng dừng căn giữa. Căn liên tục
   đến vùng 40–60%, dừng quay và xác nhận 3 ảnh mới liên tiếp trước khi tiến lại.
   Đổi chiều quay cũng qua bước dừng. Không tự lùi.
 - Cấu hình chạy của ứng dụng là `AlignmentConfig` (±15%/±10%), dùng chung cho
   đường vẽ và Follower, ghi đè metadata căn tâm cũ trong ONNX; không cần train lại.
-- Ổn định detect: mục tiêu mới cần confidence >=0,25; mục tiêu đang theo có
-  thể giữ ở >=0,15 khi box vẫn khớp vị trí (IoU >=0,2, tỷ lệ diện tích 0,5–2).
+- Ổn định detect: chỉ AI cần confidence >=0,5; Auto + AI cần confidence >0,8
+  và xác minh tâm bảng, áp dụng cho cả mục tiêu mới và mục tiêu đang theo;
+  box đang theo cần khớp vị trí (IoU >=0,2, tỷ lệ diện tích 0,5–2).
   Lưu liên kết tối đa 250 ms sau lần thấy cuối để tránh nhảy sang vật khác.
   Mỗi mục tiêu có ID tạm; đổi ID phải xác nhận lại qua 3 ảnh mới.
 - Chỉ vẽ box của mục tiêu được chọn; làm mượt riêng box hiển thị. Điểm tâm
@@ -247,18 +263,19 @@ không thay thế thử cảm biến, mạch và động cơ thực tế.
   found=False và xe dừng ngay, không dùng box cũ để tiếp tục lái.
 - Khi model sẵn sàng, màn hình chỉ lấy ảnh đã xử lý YOLO (tuổi ảnh <=500 ms),
   không xen ảnh camera thô làm box nhấp nháy hoặc ID ảnh vượt trước inference.
-- HC-SR04 ở 90° trong AI; dừng tiến <=20 cm, nhả giữ khi >25 cm. Khi được phép tiến, luôn dùng 50% PWM.
+- HC-SR04 ở 90° trong AI; dừng tiến <=50 cm, nhả giữ khi >55 cm. Khi được phép tiến,
+  laptop yêu cầu 45%; firmware xuất PWM trái 45%, phải 50% trên xe thật.
   Số đo sai thì dừng tiến. Ngưỡng và thuật toán Auto được giữ riêng.
 - Không thấy mục tiêu trên ảnh mới: dừng tại chỗ và chờ mục tiêu xuất hiện.
   Xác nhận lại qua 3 ảnh mới rồi tiếp tục. Không tự quay tìm, không có bộ đếm
   một vòng hoặc chờ 5 giây. Mất luồng camera vẫn kết thúc phiên như dưới đây.
 - Khi sonar không có Echo (0 cm) hoặc đo ngoài 2–400 cm, AI vào SENSOR_HOLD
-  và không tiến. PWM đi thẳng vẫn là 50%; tăng PWM quay không bỏ chặn cảm biến.
-  Có số đo hợp lệ trở lại thì tiếp tục, theo ngưỡng dừng 20 cm/nhả giữ >25 cm.
+  và không tiến. Lệnh tiến yêu cầu 45% trước bước bù lệch; tăng PWM quay không bỏ chặn cảm biến.
+  Có số đo hợp lệ trở lại thì tiếp tục, theo ngưỡng dừng 50 cm/nhả giữ >55 cm.
 - Không có ảnh/kết quả AI mới trong 0,5 giây: kết thúc phiên do lỗi, không tìm.
   ESP32 cũng hủy phiên sau 500 ms không có lệnh hợp lệ. Không tự tiếp tục phiên cũ.
 
-20 cm là ngưỡng sonar, không bảo đảm khoảng cách dừng vật lý chính xác 20 cm vì
+50 cm là ngưỡng sonar, không bảo đảm khoảng cách dừng vật lý chính xác 50 cm vì
 quán tính và trễ. Sonar đo vật phía trước gần nhất, chưa xác minh vật đó chính là
 mục tiêu YOLO; không bao phủ hai bên xe khi quay. Khóa lại theo vị trí/lớp, chưa có
 nhận dạng danh tính: có thể khóa vật `target` khác nếu có nhiều vật cùng loại.
@@ -312,7 +329,7 @@ ESP32 dùng `mode_epoch` và session để chặn lệnh cũ sau khi đổi mode
 | GET `/status` | Mode, epoch, boot ID, chuyển động, khoảng cách AI, log |
 | GET `/driveauto`, `/drivemanual` | Header `X-Mode-Epoch` hiện tại |
 | POST `/ai/claim` | Header epoch; nhận session ngẫu nhiên, một chủ AI |
-| POST `/ai/command` | Form session, seq tăng dần, movement FORWARD/LEFT/RIGHT/STOPPED, speed 0–70 khi quay (AI dùng 64–70), 0–50 khi tiến/dừng |
+| POST `/ai/command` | Form session, seq tăng dần, movement FORWARD/LEFT/RIGHT/STOPPED, speed 0–62 khi quay (AI dùng 58–62), 0–50 khi tiến/dừng |
 | POST `/ai/release` | Hủy đúng session, không dừng mode khác |
 | POST `/estop` | Dừng tất cả, thu hồi AI, về Manual |
 

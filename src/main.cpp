@@ -8,12 +8,11 @@
 #include "obstacle_avoid.h"
 #include "drive_mode.h"
 #include "ai_control.h"
-#include "bumper.h"
 
 void setup() {
   Serial.begin(115200);
   delay(200);
-   
+
   setupLeds();
   setupMotors();
   setupUltrasonic();
@@ -22,8 +21,6 @@ void setup() {
   setDriveMode(DriveMode::Manual);
   resetCommandTimer();
 
-  setupBumpers();
-
   Serial.println();
   Serial.println("ESP32 robot: Wi-Fi manual control ready");
   setupWiFiAndServer();
@@ -31,13 +28,6 @@ void setup() {
 
 void loop() {
   handleWebServer();
- 
-  bool bumperBusy = handleBumperCollision();
-
-  if (bumperBusy) {
-      return;
-  }
-
   checkCommandTimeout();
   updateAIControl();
   updateObstacleAvoidance();

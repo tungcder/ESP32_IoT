@@ -61,6 +61,7 @@ class AlignmentResult:
     target_id: int | None = None
     box_xyxy: tuple | None = None
     display_box_xyxy: tuple | None = None
+    center_verified: bool = False
 
     def as_dict(self):
         return asdict(self)
@@ -151,25 +152,31 @@ class TargetAligner:
                 continue
             box = [max(0.0,min(float(width),box[0])), max(0.0,min(float(height),box[1])),
                    max(0.0,min(float(width),box[2])), max(0.0,min(float(height),box[3]))]
+            center = detection.get('center_xy')
+            if center is not None:
+                if (len(center) != 2 or not all(math.isfinite(v) for v in center)
+                        or not box[0] <= center[0] <= box[2]
+                        or not box[1] <= center[1] <= box[3]):
+                    continue
             if box[2] > box[0] and box[3] > box[1] and score >= self.tracking_confidence:
-                candidates.append((box, score))
+                candidates.append((box, score, center))
         if not candidates:
             return self._missing(stamp)
         # Keep the overlapping board rather than switching when confidences fluctuate.
-        overlapping = [(box, score) for box, score in candidates
+        overlapping = [(box, score, center) for box, score, center in candidates
                        if self._box is not None and _iou(self._box, box) >= 0.2
                        and 0.5 <= ((box[2]-box[0])*(box[3]-box[1])) /
                        ((self._box[2]-self._box[0])*(self._box[3]-self._box[1])) <= 2.0]
         if overlapping:
-            box, score = max(overlapping, key=lambda item: _iou(self._box, item[0]))
+            box, score, center = max(overlapping, key=lambda item: _iou(self._box, item[0]))
         else:
             # An unrelated object cannot steal a temporarily uncertain track.
             if self._box is not None:
                 return self._missing(stamp)
-            candidates = [(box, score) for box, score in candidates if score >= self.confidence]
+            candidates = [(box, score, center) for box, score, center in candidates if score >= self.confidence]
             if not candidates:
                 return self._missing(stamp)
-            box, score = max(candidates, key=lambda item: item[1])
+            box, score, center = max(candidates, key=lambda item: item[1])
             self._filtered, self._turning = None, False
             self._next_target_id += 1
             self._target_id = self._next_target_id
@@ -183,7 +190,7 @@ class TargetAligner:
         else:
             self._display_box = [alpha*x+(1-alpha)*old for x, old in zip(box, self._display_box)]
         self._last_seen = stamp
-        cx, cy = (box[0]+box[2])/2, (box[1]+box[3])/2
+        cx, cy = center if center is not None else ((box[0]+box[2])/2, (box[1]+box[3])/2)
         error = (cx-width/2)/width
         if self._filtered is None or error*self._filtered < 0:
             # Do not keep turning toward the old side after crossing the center.
@@ -213,7 +220,8 @@ class TargetAligner:
             found=True, center_x=cx, center_y=cy, error_px=cx-width/2,
             error_normalized=error, filtered_error_normalized=filtered,
             confidence=score, frame_time=stamp, target_id=self._target_id,
-            box_xyxy=tuple(box), display_box_xyxy=tuple(self._display_box))
+            box_xyxy=tuple(box), display_box_xyxy=tuple(self._display_box),
+            center_verified=center is not None)
         return self.result
 
 

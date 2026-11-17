@@ -49,9 +49,9 @@ Nội dung dựa trên chức năng và cấu hình hiện tại của project: 
 **Luồng xử lý của hệ thống:**
 
 1. Dừng chuyển động hiện tại, thu hồi phiên AI nếu có, đưa cảm biến về hướng trước ở góc 90° và chuyển sang Auto.
-2. Đo khoảng cách phía trước. Nếu số đo hợp lệ và lớn hơn 40 cm, xe tiến.
-3. Nếu khoảng cách nhỏ hơn hoặc bằng 40 cm, hoặc không có số đo hợp lệ, xe lùi một đoạn ước tính 8 cm rồi dừng để quét.
-4. Quét bên trái tại 135° và 180°. Nếu cả hai số đo đều hợp lệ và lớn hơn 40 cm, xe quay trái xấp xỉ 90° theo thời gian đã hiệu chỉnh.
+2. Đo khoảng cách phía trước. Nếu số đo hợp lệ và lớn hơn 50 cm, xe tiến.
+3. Nếu khoảng cách nhỏ hơn hoặc bằng 50 cm, hoặc không có số đo hợp lệ, xe lùi một đoạn ước tính 8 cm rồi dừng để quét.
+4. Quét bên trái tại 135° và 180°. Nếu cả hai số đo đều hợp lệ và lớn hơn 50 cm, xe quay trái xấp xỉ 90° theo thời gian đã hiệu chỉnh.
 5. Nếu bên trái chưa thông thoáng, quét bên phải tại 45° và 0°. Nếu cả hai vị trí đều thông thoáng, xe quay phải xấp xỉ 90°.
 6. Nếu hai bên đều chưa thông thoáng, xe tiếp tục lùi một đoạn ước tính 12 cm và quét lại. Sau khi quay, xe kiểm tra phía trước và tiếp tục chu trình.
 
@@ -88,7 +88,7 @@ Nội dung dựa trên chức năng và cấu hình hiện tại của project: 
 1. Kiểm tra mô hình, độ mới của hình ảnh và trạng thái ESP32; từ chối bắt đầu nếu điều kiện chưa đáp ứng.
 2. Yêu cầu quyền điều khiển AI, dừng chuyển động trước đó và chờ ESP32 xác nhận trạng thái dừng.
 3. Nhận diện và xác nhận mục tiêu ổn định qua 3 khung hình mới. Nếu chưa thấy mục tiêu, xe đứng yên chờ.
-4. Khi tâm mục tiêu nằm trong vùng 35–65% chiều rộng ảnh và điều kiện khoảng cách cho phép, xe tiến thẳng với PWM 50%.
+4. Khi tâm mục tiêu nằm trong vùng 35–65% chiều rộng ảnh và điều kiện khoảng cách cho phép, xe tiến thẳng với lệnh PWM 45% (động cơ trái 45%, phải 50%).
 5. Khi mục tiêu lệch khỏi vùng cho phép, khoảng cách không phù hợp hoặc mất mục tiêu, hệ thống xử lý theo UC06, UC07 hoặc UC08.
 6. Nếu ESP32 không nhận lệnh AI hợp lệ trong hơn 500 ms, xe tự dừng và thu hồi phiên; lệnh đến muộn không khôi phục được phiên cũ.
 7. Khi người dùng nhấn **Dừng AI**, hệ thống kết thúc phiên, yêu cầu xe dừng và thu hồi quyền điều khiển AI.
@@ -125,9 +125,9 @@ Nội dung dựa trên chức năng và cấu hình hiện tại của project: 
 **Luồng xử lý của hệ thống:**
 
 1. Liên tục cập nhật khoảng cách phía trước từ cảm biến siêu âm.
-2. Khi khoảng cách nhỏ hơn hoặc bằng 20 cm, hệ thống dừng xe và chuyển sang trạng thái giữ khoảng cách.
-3. Nếu khoảng cách tăng nhưng chưa lớn hơn 25 cm, xe tiếp tục đứng yên để tránh chạy–dừng liên tục quanh ngưỡng.
-4. Khi khoảng cách lớn hơn 25 cm, hệ thống đánh giá lại vị trí mục tiêu để tiếp tục bám hoặc căn hướng.
+2. Khi khoảng cách nhỏ hơn hoặc bằng 50 cm, hệ thống dừng xe và chuyển sang trạng thái giữ khoảng cách.
+3. Nếu khoảng cách tăng nhưng chưa lớn hơn 55 cm, xe tiếp tục đứng yên để tránh chạy–dừng liên tục quanh ngưỡng.
+4. Khi khoảng cách lớn hơn 55 cm, hệ thống đánh giá lại vị trí mục tiêu để tiếp tục bám hoặc căn hướng.
 5. Nếu không có Echo hoặc số đo ngoài khoảng hợp lệ 2–400 cm, hệ thống dừng chờ cảm biến. Chỉ xem xét di chuyển tiếp khi số đo hợp lệ trở lại và thỏa điều kiện khoảng cách.
 
 **Kết quả và hậu điều kiện:** Xe tạm dừng theo số đo phía trước; phiên AI vẫn hoạt động và có thể tiếp tục khi đủ điều kiện. Xe không tự lùi để tăng khoảng cách trong chế độ AI. Số đo này thuộc vật gần nhất phía trước, chưa xác định đó có phải mục tiêu được nhận diện hay không.

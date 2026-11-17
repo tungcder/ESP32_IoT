@@ -15,9 +15,14 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
+# Compare in the model's FP32 precision so its exact 80% output stays excluded.
+HYBRID_CONFIDENCE_THRESHOLD = float(np.float32(0.8))
+
 if __package__:
+    from .target_center import find_target_center
     from .target_alignment import AlignmentConfig, AlignmentResult, TargetAligner, draw_alignment
 else:
+    from target_center import find_target_center
     from target_alignment import AlignmentConfig, AlignmentResult, TargetAligner, draw_alignment
 
 
@@ -39,6 +44,7 @@ class TargetAI:
         self.tracking_confidence = min(0.15, confidence) if tracking_confidence is None else tracking_confidence
         self.aligner = TargetAligner(alignment, confidence=confidence,
                                      tracking_confidence=self.tracking_confidence)
+        self._detection_policy = None
         path = Path(weights) if weights is not None else Path(__file__).resolve().parent/"best.onnx"
         if not path.is_file():
             raise FileNotFoundError(f"ONNX model not found: {path}")
@@ -102,7 +108,9 @@ class TargetAI:
         order = best_scores.argsort()[::-1][:30000]
         rows,best_scores = rows[order],best_scores[order]
         xywh = np.column_stack((rows[:,0]-rows[:,2]/2,rows[:,1]-rows[:,3]/2,rows[:,2:4]))
-        selected = cv2.dnn.NMSBoxes(xywh.tolist(),best_scores.tolist(),self.tracking_confidence,self.iou)
+        # Scores were already filtered inclusively above. OpenCV uses a strict
+        # threshold here, which would otherwise discard an exact 50% AI score.
+        selected = cv2.dnn.NMSBoxes(xywh.tolist(),best_scores.tolist(),0.0,self.iou)
         detections = []
         for index in np.asarray(selected,dtype=int).reshape(-1)[:100]:
             x,y,bw,bh = xywh[index]
@@ -119,14 +127,23 @@ class TargetAI:
         if control is not None:
             control(state.linear_velocity,state.angular_velocity)
 
-    def process_frame(self, frame_bgr, *, control=None, captured_at=None, draw=True):
+    def process_frame(self, frame_bgr, *, control=None, captured_at=None, draw=True,
+                      detection_policy="verified_target"):
         """Detect, align and optionally call control(0.0, angular_rad_s).
 
         frame_bgr: original unmirrored uint8 HxWx3 BGR image.
         captured_at: time.monotonic() from THIS process/host, captured when
         the frame became available, never the robot simulation's time counter.
         If camera stalls, call tick() on every control tick to apply stale STOP.
+        detection_policy: "bbox" uses the YOLO box midpoint; "verified_target"
+        requires confidence > 0.8 and a center confirmed by the target rings.
         """
+        if detection_policy not in ("bbox", "verified_target"):
+            self._apply(control, self.aligner.reset("invalid_detection_policy"))
+            raise ValueError("detection_policy must be bbox or verified_target.")
+        if detection_policy != self._detection_policy:
+            self.aligner.reset("detection_policy_changed")
+            self._detection_policy = detection_policy
         stamp = time.monotonic() if captured_at is None else captured_at
         if frame_bgr is None:
             state = self.aligner.reset("no_frame")
@@ -143,7 +160,18 @@ class TargetAI:
                 self._apply(control,state)
                 annotated = draw_alignment(frame_bgr,state,self.aligner.config) if draw else None
                 return AIResult(state,[],annotated,0.0)
-            detections,inference_ms = self._detect(frame_bgr)
+            candidates,inference_ms = self._detect(frame_bgr)
+            if detection_policy == "bbox":
+                detections = candidates
+            else:
+                detections = []
+                for detection in candidates:
+                    if detection['confidence'] <= HYBRID_CONFIDENCE_THRESHOLD:
+                        continue
+                    center = find_target_center(frame_bgr, detection['xyxy'])
+                    if center is not None:
+                        detections.append(dict(detection, center_xy=(center.x, center.y),
+                                               center_rings=center.rings))
             h,w = frame_bgr.shape[:2]
             state = self.aligner.update(detections,w,h,frame_time=stamp)
         except Exception:

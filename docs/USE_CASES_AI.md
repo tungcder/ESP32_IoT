@@ -16,7 +16,7 @@ Nội dung mô tả các chức năng hiện có trong project. Camera iPhone cu
 2. Thiết lập phiên điều khiển AI, dừng chuyển động trước đó và chờ ESP32 xác nhận xe đã dừng.
 3. Xử lý các khung hình mới bằng YOLOv8n, xác định vị trí mục tiêu và hiển thị khung nhận diện trên laptop.
 4. Xác nhận mục tiêu ổn định qua **3 khung hình mới** trước khi cho phép bám. Nếu chưa phát hiện được mục tiêu, xe đứng yên chờ.
-5. Khi tâm mục tiêu nằm trong vùng **35–65% chiều rộng ảnh** và khoảng cách phía trước cho phép, xe tiến thẳng với **PWM 50%**. Nếu tâm vượt vùng này, thực hiện căn hướng theo UC_AI02; nếu khoảng cách không phù hợp, xử lý theo UC_AI03.
+5. Khi tâm mục tiêu nằm trong vùng **35–65% chiều rộng ảnh** và khoảng cách phía trước cho phép, xe tiến thẳng với **lệnh PWM 45%** (động cơ trái **45%**, phải **50%**). Nếu tâm vượt vùng này, thực hiện căn hướng theo UC_AI02; nếu khoảng cách không phù hợp, xử lý theo UC_AI03.
 6. Nếu mất nhận diện nhưng camera vẫn có ảnh mới, xe dừng tại chỗ và chờ; khi mục tiêu xuất hiện lại, xác nhận qua 3 ảnh mới trước khi tiếp tục.
 7. Khi người dùng nhấn **Dừng Auto + AI / AI**, hệ thống yêu cầu xe dừng và kết thúc quyền điều khiển của phiên hiện tại.
 
@@ -35,7 +35,7 @@ Nội dung mô tả các chức năng hiện có trong project. Camera iPhone cu
 1. Phát hiện tâm mục tiêu nằm ngoài vùng **35–65% chiều rộng ảnh**, chuyển sang bước dừng trước khi căn hướng.
 2. Gửi lệnh dừng, chờ ESP32 xác nhận xe dừng ít nhất **150 ms** và nhận thêm một khung hình mới trước khi xoay.
 3. Cho xe xoay tại chỗ về phía mục tiêu: mục tiêu lệch trái thì quay trái, lệch phải thì quay phải.
-4. Điều chỉnh mức quay trong khoảng **64–70% PWM**, giảm dần khi tâm mục tiêu tiến gần vùng giữa.
+4. Điều chỉnh lệnh quay trong khoảng **58–62% PWM**, giảm dần khi tâm mục tiêu tiến gần vùng giữa. Sau bù lệch, động cơ trái chạy **53–57% PWM**, động cơ phải **58–62% PWM**.
 5. Khi tâm mục tiêu vào vùng **40–60% chiều rộng ảnh**, dừng quay và xác nhận vị trí qua **3 khung hình mới liên tiếp**.
 6. Khi xác nhận thành công, đánh giá lại khoảng cách rồi tiếp tục tiến thẳng. Nếu phải đổi chiều quay, xe dừng và chờ xác nhận trước khi đổi chiều.
 7. Nếu mất mục tiêu trong lúc căn hướng, xe dừng; chế độ chỉ bám chờ mục tiêu xuất hiện lại, còn Auto + AI xử lý theo UC_AI04.
@@ -53,16 +53,16 @@ Nội dung mô tả các chức năng hiện có trong project. Camera iPhone cu
 **Luồng xử lý của hệ thống:**
 
 1. Cập nhật khoảng cách phía trước từ cảm biến siêu âm trong quá trình bám.
-2. Khi khoảng cách **nhỏ hơn hoặc bằng 20 cm**, dừng xe và chuyển sang trạng thái giữ khoảng cách.
-3. Nếu khoảng cách tăng nhưng **chưa lớn hơn 25 cm**, xe tiếp tục đứng yên để hạn chế chạy–dừng liên tục quanh ngưỡng.
-4. Khi khoảng cách **lớn hơn 25 cm**, kiểm tra lại mục tiêu và hướng xe để tiếp tục bám hoặc căn hướng.
+2. Khi khoảng cách **nhỏ hơn hoặc bằng 50 cm**, dừng xe và chuyển sang trạng thái giữ khoảng cách.
+3. Nếu khoảng cách tăng nhưng **chưa lớn hơn 55 cm**, xe tiếp tục đứng yên để hạn chế chạy–dừng liên tục quanh ngưỡng.
+4. Khi khoảng cách **lớn hơn 55 cm**, kiểm tra lại mục tiêu và hướng xe để tiếp tục bám hoặc căn hướng.
 5. Nếu cảm biến không có Echo hoặc số đo ngoài khoảng hợp lệ **2–400 cm**, xe dừng chờ. Chỉ xem xét di chuyển tiếp khi số đo hợp lệ trở lại và thỏa điều kiện khoảng cách.
 6. Nếu ảnh hoặc kết quả AI cũ quá **0,5 giây**, hệ thống kết thúc phiên do lỗi và yêu cầu xe dừng. Nếu ESP32 không nhận lệnh hợp lệ trong hơn **500 ms**, ESP32 tự dừng và thu hồi phiên điều khiển.
 7. Nếu người dùng nhấn **Dừng khẩn cấp**, khi nhận yêu cầu, ESP32 dừng động cơ, thu hồi phiên AI và chuyển về **Wi-Fi Manual**; giao diện hiển thị kết quả xác nhận hoặc lỗi liên lạc.
 
 **Kết quả và hậu điều kiện:** Xe tạm dừng khi khoảng cách hoặc số đo không phù hợp; phiên vẫn có thể tiếp tục nếu chỉ đang giữ khoảng cách hoặc chờ cảm biến. Nếu phiên đã kết thúc do lỗi hoặc dừng khẩn cấp, người dùng phải chủ động bắt đầu lại. Trong lúc bám AI, xe không tự lùi để tăng khoảng cách.
 
-*Lưu ý:* Cảm biến đo vật gần nhất phía trước, chưa xác định đó có phải mục tiêu YOLO hay không. Mốc 20 cm là ngưỡng xử lý số đo, không bảo đảm khoảng cách dừng thực tế chính xác 20 cm.
+*Lưu ý:* Cảm biến đo vật gần nhất phía trước, chưa xác định đó có phải mục tiêu YOLO hay không. Mốc 50 cm là ngưỡng xử lý số đo, không bảo đảm khoảng cách dừng thực tế chính xác 50 cm.
 
 ## UC_AI04: Tự di chuyển tránh vật cản kết hợp bám mục tiêu (Auto + AI)
 

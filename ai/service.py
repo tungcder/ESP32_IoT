@@ -15,8 +15,8 @@ import time
 from urllib.parse import urlsplit
 from urllib.error import HTTPError, URLError
 
-from .follower import Follower
-from .hybrid import HybridFollower
+from .follower import Decision, Follower
+from .hybrid import HybridDecision, HybridFollower
 from .robot_client import RobotClient, describe_robot_error, validate_robot_url
 from yolov8n.target_alignment import AlignmentConfig
 
@@ -55,6 +55,10 @@ class AIService:
         self.robot_error = ""
         self.session = None
         self.control_mode = "AI"
+        self.detection_policy = "bbox"
+        self.inference_generation = 0
+        self.inference_frame_floor = 0
+        self.awaiting_inference_since = None
         self.sequence = 0
         self.follower = None
         self.decision = dict(state="IDLE", movement="STOPPED", reason="Chưa bắt đầu AI")
@@ -214,7 +218,8 @@ class AIService:
             import cv2
             from yolov8n.robot_ai import TargetAI
             # Runtime guide/control policy overrides legacy alignment metadata.
-            ai = TargetAI(weights=ROOT / "yolov8n/best.onnx", alignment=AlignmentConfig())
+            ai = TargetAI(weights=ROOT / "yolov8n/best.onnx", alignment=AlignmentConfig(),
+                          confidence=0.5, tracking_confidence=0.5)
             with self.lock:
                 self.alignment_config = asdict(ai.aligner.config)
                 self.model_ready = True
@@ -224,7 +229,7 @@ class AIService:
                 self.model_error = f"Không nạp được model: {type(error).__name__}. Kiểm tra model và requirements.txt."
             self.log(self.model_error, "error")
             return
-        previous = None
+        previous = context = None
         while not self.shutdown_event.is_set():
             self.frame_ready.wait(0.1)
             self.frame_ready.clear()
@@ -232,29 +237,36 @@ class AIService:
                 break
             with self.lock:
                 frame, stamp, sequence, generation = self.frame, self.frame_at, self.frame_id, self.camera_generation
-            key = (generation, sequence)
-            if frame is None or key == previous or time.monotonic() - stamp > FRAME_TIMEOUT:
+                inference_generation, policy = self.inference_generation, self.detection_policy
+                frame_floor = self.inference_frame_floor
+            key = (generation, inference_generation, sequence)
+            if (frame is None or key == previous or sequence <= frame_floor
+                    or time.monotonic() - stamp > FRAME_TIMEOUT):
                 continue
             previous = key
             try:
-                if getattr(ai, "camera_generation", None) != generation:
+                if context != key[:2]:
                     ai.stop()
-                    ai.camera_generation = generation
+                    context = key[:2]
                 started = time.monotonic()
-                result = ai.process_frame(frame, captured_at=stamp, draw=True)
+                result = ai.process_frame(frame, captured_at=stamp, draw=True, detection_policy=policy)
                 with self.lock:
-                    if (generation != self.camera_generation or not self.camera_connected
+                    if (generation != self.camera_generation or inference_generation != self.inference_generation
+                            or not self.camera_connected
                             or time.monotonic() - stamp > FRAME_TIMEOUT):
                         continue
                     # Motor decisions do not wait on display JPEG compression.
                     self.result = result.alignment.as_dict()
+                    self.result["detection_policy"] = policy
                     self.result["inference_ms"] = round(result.inference_ms, 1)
                     self.result_at, self.result_id = stamp, sequence
+                    self.awaiting_inference_since = None
                     self.processing_ms = round((time.monotonic() - started) * 1000, 1)
                     self.inference_times.append(time.monotonic())
                 success, encoded = cv2.imencode(".jpg", result.annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
                 with self.lock:
-                    if (success and generation == self.camera_generation and self.camera_connected
+                    if (success and generation == self.camera_generation
+                            and inference_generation == self.inference_generation and self.camera_connected
                             and time.monotonic() - stamp <= FRAME_TIMEOUT):
                         self.jpeg, self.jpeg_at = encoded.tobytes(), stamp
                         self.jpeg_id = sequence
@@ -303,6 +315,13 @@ class AIService:
             with self.lock:
                 self.session = claim["session"]
                 self.control_mode = mode
+                self.detection_policy = "verified_target" if mode == "HYBRID" else "bbox"
+                self.inference_generation += 1
+                self.inference_frame_floor = self.frame_id
+                self.awaiting_inference_since = time.monotonic()
+                self.result = self.jpeg = None
+                self.result_at = self.jpeg_at = 0
+                self.preview_ready.notify_all()
                 self.sequence = 1
                 self.follower = follower
                 self.robot_state, self.robot_seen = stopped, time.monotonic()
@@ -310,6 +329,7 @@ class AIService:
                 self.decision = dict(state="READY" if mode == "HYBRID" else "WAIT_TARGET",
                                      movement="STOPPED", reason="Đã dừng khởi tạo; chuẩn bị Auto + AI" if mode == "HYBRID" else "Chờ khóa mục tiêu")
             self.control_wake.set()
+            self.frame_ready.set()
             self.log("Bắt đầu Auto + AI; chưa thấy mục tiêu sẽ tự né vật cản" if mode == "HYBRID" else "Bắt đầu phiên AI; chờ xác nhận mục tiêu")
 
     def stop(self, reason="Người dùng dừng AI", final_state="IDLE"):
@@ -384,15 +404,22 @@ class AIService:
                     return
                 now = time.monotonic()
                 observation, stamp, frame_id = self.result, self.result_at, self.result_id
-                stale = (observation is None or now - stamp > FRAME_TIMEOUT
-                         or now - self.frame_at > FRAME_TIMEOUT or bool(self.camera_error))
+                waiting = (observation is None and self.awaiting_inference_since is not None
+                           and now - self.awaiting_inference_since <= FRAME_TIMEOUT)
+                stale = ((not waiting and (observation is None or now - stamp > FRAME_TIMEOUT))
+                         or now - self.frame_at > FRAME_TIMEOUT or bool(self.camera_error)
+                         or not self.model_ready)
             # A slow release must not hold the camera/snapshot lock.
             if stale:
                 self.stop("Mất hình mới hoặc AI quá chậm; kết thúc phiên", "FAULT")
                 return
             with self.lock:
                 distance = (self.robot_state or {}).get("distance_cm", 0)
-                decision = self.follower.step(observation, frame_id, now, distance)
+                if waiting:
+                    decision = (HybridDecision if self.control_mode == "HYBRID" else Decision)(
+                        "WAIT_FRAME", reason="Chờ ảnh mới theo chế độ nhận diện đã chọn")
+                else:
+                    decision = self.follower.step(observation, frame_id, now, distance)
                 old = self.decision
                 self.decision = asdict(decision)
                 client = RobotClient(self.config["robot_url"])
@@ -460,6 +487,8 @@ class AIService:
             if after_event is not None and after_event <= self.event_id:
                 events = [event for event in events if event["id"] > after_event]
             return dict(active=bool(self.session), control_mode=self.control_mode, model_ready=self.model_ready, model_error=self.model_error,
+                        detection_policy=self.detection_policy,
+                        inference_generation=self.inference_generation,
                         camera_ready=self.frame is not None and now - self.frame_at <= FRAME_TIMEOUT and not self.camera_error,
                         inference_ready=self.result is not None and now - self.result_at <= FRAME_TIMEOUT,
                         camera_connected=self.camera_connected, camera_error=self.camera_error, frame_age_ms=round((now - self.frame_at)*1000) if self.frame_at else None,

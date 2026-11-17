@@ -13,9 +13,13 @@ namespace Config {
   constexpr uint8_t MOTOR_IN4 = 33;
   constexpr uint8_t MOTOR_SPEED_PERCENT = 50;        // tốc độ tiến/lùi
   constexpr uint8_t MOTOR_SPEED_DUTY = (255 * MOTOR_SPEED_PERCENT + 50) / 100;
-  constexpr uint8_t AI_TURN_SPEED_PERCENT = 70; 
-  constexpr uint8_t MOTOR_TURN_SPEED_PERCENT = 50;   // tốc độ quay tại chỗ
+  constexpr uint8_t MOTOR_TURN_SPEED_PERCENT = 80;   // quay tại chỗ Manual
   constexpr uint8_t MOTOR_TURN_SPEED_DUTY = (255 * MOTOR_TURN_SPEED_PERCENT + 50) / 100;
+  constexpr uint8_t AUTO_TURN_SPEED_PERCENT = 70;    // Obstacle Auto và Auto + AI khi tìm mục tiêu
+  constexpr uint8_t AI_TURN_SPEED_PERCENT = 62;      // giới hạn quay riêng cho AI
+  // AI calibration in percentage points; applied only to AI motor output.
+  constexpr uint8_t AI_TURN_LEFT_REDUCTION_PERCENT = 5;
+  constexpr uint8_t AI_FORWARD_RIGHT_BOOST_PERCENT = 5;
 
   // HC-SR04
   constexpr uint8_t TRIG_PIN = 16;
@@ -23,12 +27,6 @@ namespace Config {
 
   // SG90 signal
   constexpr uint8_t SERVO_PIN = 21;
-  constexpr uint8_t HYBRID_SERVO_SETTLE_MS = 300;
-
-  // Bumper
-  constexpr uint8_t BUMPER_LEFT_PIN = 32;
-  constexpr uint8_t BUMPER_RIGHT_PIN = 4;
-
 
   // LEDs
   constexpr uint8_t LED_FRONT_LEFT  = 18;
@@ -37,19 +35,21 @@ namespace Config {
   constexpr uint8_t LED_REAR_RIGHT  = 23;
 
   // Connect to the same 2.4 GHz Wi-Fi network as the laptop.
-  constexpr char WIFI_SSID[] = "Tung Tung";
-  constexpr char WIFI_PASSWORD[] = "88888888";
+  constexpr char WIFI_SSID[] = "Hung Dong 2006";
+  constexpr char WIFI_PASSWORD[] = "44448888";
   constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;
 
   constexpr unsigned long COMMAND_TIMEOUT_MS = 500;
-  constexpr int AI_STOP_DISTANCE_CM = 20;
-  constexpr int AI_RESUME_DISTANCE_CM = 25;
+  constexpr int AI_STOP_DISTANCE_CM = 50;
+  constexpr int AI_RESUME_DISTANCE_CM = 55;
   constexpr unsigned long AI_SENSOR_INTERVAL_MS = 70;
-  constexpr int SAFE_DISTANCE_CM = 40;
+  constexpr unsigned long HYBRID_SERVO_SETTLE_MS = 300;
+  constexpr int SAFE_DISTANCE_CM = 50;
   constexpr int AUTO_REVERSE_CM = 8;
   constexpr int AUTO_RETRY_REVERSE_CM = 12;
-  // Initial estimates at 50% PWM, NOT measured distances/angles.
-  // Calibrate on the real car; changing speed/voltage requires recalibration.
+  // Timings were estimated at 50% PWM, NOT measured distances/angles.
+  // Recalibrate the 90-degree turn timings for the current 70% Auto turn PWM.
+  // Changing speed/voltage requires calibration on the real car.
   constexpr unsigned long AUTO_REVERSE_MS_PER_CM = 50;
   constexpr unsigned long AUTO_LEFT_90_MS = 780;
   constexpr unsigned long AUTO_RIGHT_90_MS = 780;

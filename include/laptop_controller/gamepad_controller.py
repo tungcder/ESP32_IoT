@@ -9,7 +9,7 @@ import sys
 
 # IP hiện tại của ESP32 (xem Serial Monitor). Có thể truyền khi chạy:
 #   python gamepad_controller.py 192.168.1.50
-ESP32_IP = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1:8081"
+ESP32_IP = sys.argv[1] if len(sys.argv) > 1 else "192.168.1.36"
 BASE_URL = f"http://{ESP32_IP}"
 
 # Flydigi Dune Fox - Left analog stick

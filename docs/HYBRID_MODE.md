@@ -14,14 +14,23 @@ ESP32 giữ quyền điều khiển động cơ, cảm biến và thuật toán 
    **Dừng khẩn cấp** hoặc chọn Manual/Obstacle Auto cũng thu hồi phiên Hybrid.
 
 Nút **Chỉ bám mục tiêu** giữ hành vi AI độc lập: không thấy mục tiêu thì đứng
-yên chờ. Obstacle Auto độc lập vẫn hoạt động không cần laptop.
+yên chờ. Chế độ này nhận bbox lớp `target` từ confidence 50% và dùng trung
+điểm bbox để căn hướng, không yêu cầu tìm được tâm thật của bảng.
+Obstacle Auto độc lập vẫn hoạt động không cần laptop.
+
+**Auto + AI** chỉ chấp nhận mục tiêu có confidence **>80%** và xác minh được
+tâm từ các vòng bia đồng tâm. Đúng 80% hoặc chưa xác minh được tâm thì không
+vẽ bbox và không bám ứng viên đó. Điều kiện áp dụng cả khi đang bám: mất điều
+kiện sẽ vào LOST_HOLD, sau 1,5 giây vắng mục tiêu hợp lệ trên ảnh mới thì về SEARCH.
+Nếu chưa bám, xe tiếp tục SEARCH khi không có mục tiêu hợp lệ.
 
 ## Hành vi
 
 | Trạng thái | Xử lý |
 | --- | --- |
+| WAIT_FRAME | Giữ dừng sau khi bắt đầu, chờ ảnh mới đúng chế độ; bỏ kết quả và box của phiên trước |
 | SEARCH | ESP32 tự chạy và né vật cản; laptop tiếp tục nhận diện |
-| CONFIRM_TARGET | Dừng ngay khi có ứng viên; xác nhận cùng mục tiêu qua 3 ảnh mới liên tiếp và xác nhận xe dừng ít nhất 150 ms |
+| CONFIRM_TARGET | Dừng khi có ứng viên đã xác minh tâm và confidence >80%; xác nhận cùng mục tiêu qua 3 ảnh mới liên tiếp và xác nhận xe dừng ít nhất 150 ms |
 | HANDOFF | Giữ dừng, đưa sonar về 90°, chờ ít nhất 300 ms, số đo hợp lệ và ảnh mục tiêu mới |
 | TRACK / ALIGN | Dùng thuật toán bám và căn hướng AI hiện có |
 | LOST_HOLD | Dừng ngay khi mất mục tiêu; xác nhận lại nếu mục tiêu xuất hiện; nếu vắng liên tục 1,5 giây trên ảnh mới thì trở lại SEARCH |
@@ -30,7 +39,7 @@ yên chờ. Obstacle Auto độc lập vẫn hoạt động không cần laptop.
 Khi trở lại SEARCH, chu trình né vật cản được khởi tạo lại từ kiểm tra phía
 trước; không tiếp tục bước lùi/quay cũ. Sonar không hợp lệ trong lúc Hybrid
 đo khoảng cách thì dừng chờ, không coi khoảng trống chưa đo được là đường an toàn.
-Khi bám: dừng ở 20 cm, tiếp tục khi lớn hơn 25 cm. Không bật Auto chỉ vì vật
+Khi bám: dừng ở 50 cm, tiếp tục khi lớn hơn 55 cm. Không bật Auto chỉ vì vật
 phía trước ở gần, bởi sonar có thể đang đo chính mục tiêu.
 
 Các bước lùi/quay của Auto vẫn ước tính theo thời gian; cần hiệu chỉnh trên xe

@@ -92,10 +92,10 @@ void startTurn(bool right) {
 
     if (right) {
         recordRobotEvent("Right clear; turning right");
-        turnRight();
+        setMotorSpeeds(-Config::AUTO_TURN_SPEED_PERCENT, Config::AUTO_TURN_SPEED_PERCENT);
     } else {
         recordRobotEvent("Left clear; turning left");
-        turnLeft();
+        setMotorSpeeds(Config::AUTO_TURN_SPEED_PERCENT, -Config::AUTO_TURN_SPEED_PERCENT);
     }
 
     enterState(State::Turn);

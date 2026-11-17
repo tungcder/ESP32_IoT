@@ -136,7 +136,8 @@ void updateAIControl() {
     if (distance >= 2 && distance <= 400) lastValidSensor = millis();
     if ((unsigned long)(millis() - lastSensorPrint) >= 1000) {
       lastSensorPrint = millis();
-      Serial.printf("[AI sonar] %d cm | %s | forward needs valid echo >25 cm\n", distance, sensorState);
+      Serial.printf("[AI sonar] %d cm | %s | forward needs valid echo >%d cm\n",
+                    distance, sensorState, Config::AI_RESUME_DISTANCE_CM);
     }
     apply(); // Local distance guard works even between laptop commands.
   }

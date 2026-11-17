@@ -12,9 +12,9 @@ Thiết kế mô hình trên ESP32-WROOM-32, lập trình firmware bằng C++ v�
 
 - **Điều khiển xe và quản lý chế độ:** điều khiển động cơ qua L298N bằng PWM, hỗ trợ tiến, lùi, quay và dừng. Tổ chức các chế độ Wi-Fi Manual, Obstacle Auto, AI và Auto + AI; chỉ cơ chế được cấp quyền mới điều khiển động cơ.
 
-- **Tự động tránh vật cản:** dùng HC-SR04 gắn trên servo SG90 để đo phía trước và quét hai bên. Với ngưỡng 40 cm, xe thực hiện lùi, quét và chọn hướng quay khi bị chặn. Chế độ Obstacle Auto chạy độc lập trên ESP32, không cần laptop.
+- **Tự động tránh vật cản:** dùng HC-SR04 gắn trên servo SG90 để đo phía trước và quét hai bên. Với ngưỡng 50 cm, xe thực hiện lùi, quét và chọn hướng quay khi bị chặn. Chế độ Obstacle Auto chạy độc lập trên ESP32, không cần laptop.
 
-- **Nhận diện và bám mục tiêu:** truyền hình iPhone qua WebRTC, chạy YOLOv8n dạng ONNX trên laptop để phát hiện lớp target. Xác nhận mục tiêu qua 3 ảnh mới trước khi bám, dừng để căn hướng khi lệch; giữ dừng khi khoảng cách không lớn hơn 20 cm và chỉ tiếp tục khi lớn hơn 25 cm.
+- **Nhận diện và bám mục tiêu:** truyền hình iPhone qua WebRTC, chạy YOLOv8n dạng ONNX trên laptop để phát hiện lớp target. Xác nhận mục tiêu qua 3 ảnh mới trước khi bám, dừng để căn hướng khi lệch; giữ dừng khi khoảng cách không lớn hơn 50 cm và chỉ tiếp tục khi lớn hơn 55 cm.
 
 - **Phối hợp Auto + AI:** tự tránh vật cản khi chưa thấy mục tiêu, dừng xác nhận rồi chuyển sang bám. Nếu mất mục tiêu liên tục 1,5 giây trên ảnh mới, trở lại tìm kiếm bằng hành vi tránh vật cản. Chuyển hành vi phải qua bước dừng và chờ cảm biến ổn định.
 
@@ -28,6 +28,6 @@ Thiết kế mô hình trên ESP32-WROOM-32, lập trình firmware bằng C++ v�
 
 **Giới hạn:** hệ thống chỉ bám lớp target của mô hình hiện có, chưa bảo đảm giữ đúng danh tính khi có nhiều vật cùng loại. Nhận diện phụ thuộc ánh sáng, che khuất và góc camera; điều khiển còn phụ thuộc laptop và mạng. Ngưỡng 0,5 giây dùng để giám sát độ mới dữ liệu, không bảo đảm độ trễ toàn tuyến hoặc thời gian thực cứng. Sau lỗi kết thúc phiên, người dùng phải chủ động bắt đầu lại.
 
-Sonar đo vật gần nhất phía trước, chưa xác định đó có phải mục tiêu và không bao quát đầy đủ hai bên, phía sau xe. Quãng lùi và góc quay ước tính theo thời gian, chưa có phản hồi encoder nên cần hiệu chỉnh trên xe thật. Ngưỡng 20 cm không bảo đảm khoảng cách dừng vật lý chính xác do quán tính và độ trễ.
+Sonar đo vật gần nhất phía trước, chưa xác định đó có phải mục tiêu và không bao quát đầy đủ hai bên, phía sau xe. Quãng lùi và góc quay ước tính theo thời gian, chưa có phản hồi encoder nên cần hiệu chỉnh trên xe thật. Ngưỡng 50 cm không bảo đảm khoảng cách dừng vật lý chính xác do quán tính và độ trễ.
 
 Đề tài chưa bao gồm xây dựng bản đồ, định vị hay lập kế hoạch đường đi toàn cục. Giao diện phục vụ LAN tin cậy, chưa có xác thực và phân quyền đầy đủ để công khai trên Internet. Mô phỏng hỗ trợ kiểm tra logic; hiệu quả vận hành cần được đánh giá bằng thử nghiệm thực tế.

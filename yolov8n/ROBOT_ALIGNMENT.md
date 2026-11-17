@@ -6,9 +6,10 @@ Mã nằm trong G:\yolov8n. Chỉ quay để căn bảng mục tiêu vào giữa
 
 - robot_ai.py: API ONNX, letterbox, chuẩn hóa RGB, inference, lọc class 11, NMS và gọi hàm điều khiển.
 - target_alignment.py: tính tâm, độ lệch, chọn mục tiêu, chống rung và vẽ đường giữa.
+- target_center.py: xác minh tâm vòng bia cho chế độ Auto + AI.
 - exports/best.onnx: model đã export lại, kèm cấu hình căn tâm trong metadata.
 
-Copy hai file Python và model vào project chính, giữ hai file Python cùng thư mục hoặc thêm thư mục chứa chúng vào Python path. Truyền đường dẫn model vào TargetAI. Không cần PyTorch/Ultralytics cho API ONNX này; môi trường project chính cần numpy, opencv-python và onnxruntime. CUDA của PyTorch không tự cấp GPU cho ONNX Runtime. Môi trường hiện tại đang dùng ONNX Runtime CPU; nếu cần GPU phải cài và kiểm tra runtime/provider CUDA phù hợp riêng.
+Copy ba file Python và model vào project chính, giữ ba file Python cùng thư mục hoặc thêm thư mục chứa chúng vào Python path. Truyền đường dẫn model vào TargetAI. Không cần PyTorch/Ultralytics cho API ONNX này; môi trường project chính cần numpy, opencv-python và onnxruntime. CUDA của PyTorch không tự cấp GPU cho ONNX Runtime. Môi trường hiện tại đang dùng ONNX Runtime CPU; nếu cần GPU phải cài và kiểm tra runtime/provider CUDA phù hợp riêng.
 
 ## Gọi AI từ hàm điều khiển
 
@@ -35,6 +36,7 @@ def control_step(frame_bgr=None, captured_at=None):
         captured_at=captured_at,   # time.monotonic() lúc nhận ảnh, có thể bỏ qua khi xử lý ngay
         control=robot_control,
         draw=True,
+        detection_policy="verified_target",  # Auto + AI; dùng "bbox" cho chỉ AI
     )
     # result.annotated_frame: ảnh BGR có box, đường giữa, tâm và độ lệch.
     # result.alignment: command, error_px, angular_velocity, v.v.
@@ -61,7 +63,8 @@ captured_at phải dùng time.monotonic() trên cùng máy/quá trình, không d
 ## Quy ước
 
 - Đường giữa: x = chiều rộng ảnh / 2.
-- Tâm bảng: trung điểm bounding box class 11.
+- Chỉ AI dùng `detection_policy="bbox"`: nhận bbox class 11 theo ngưỡng confidence của bộ nhận diện, dùng trung điểm bbox để căn hướng và không xác minh tâm vòng bia.
+- Auto + AI dùng `detection_policy="verified_target"` (mặc định của API): chỉ nhận ứng viên confidence >0,8 có tâm được xác nhận từ ít nhất 3 vòng tròn/ellipse đồng tâm trong vùng class 11. Chưa đủ điều kiện thì không vẽ box và không bám vùng phát hiện đó.
 - error_px = tâm bảng - tâm ảnh: âm ở trái, dương ở phải.
 - error_normalized = error_px / chiều rộng ảnh (toàn bộ chiều rộng).
 - TURN_LEFT: angular_velocity dương; TURN_RIGHT: âm; STOP: 0.
@@ -132,6 +135,14 @@ ONNX kèm metadata target_alignment_policy=raw_center_hysteresis_v2. Logic mới
 
 ## Ổn định box và liên kết mục tiêu
 
-TargetAI dùng confidence 0,25 để nhận mục tiêu mới, 0,15 để giữ một box khớp vị trí đã theo (IoU >=0,2; diện tích mới bằng 0,5–2 lần box cũ). Liên kết vị trí tồn tại tối đa 250 ms tính từ lần detect thật cuối cùng. Một ảnh mất detect vẫn trả found=False/STOP, không giả lập số đo để lái. Sau khi liên kết hết hạn, vật mới phải đạt ngưỡng nhận mới.
+Ứng dụng `ai/service.py` dùng confidence >=0,5 cho chỉ AI; Auto + AI lọc thêm confidence >0,8 và xác minh tâm, cho cả nhận mới và đang bám. API TargetAI có thể nhận ngưỡng cơ sở riêng khi được gọi bên ngoài. Box khớp vị trí đã theo cần IoU >=0,2 và diện tích mới bằng 0,5–2 lần box cũ. Liên kết vị trí tồn tại tối đa 250 ms tính từ lần detect thật cuối cùng. Một ảnh mất detect hợp lệ trả found=False/STOP; với Auto + AI, confidence <=0,8 hoặc không xác nhận được tâm cũng được coi là mất detect. Sau khi liên kết hết hạn, vật mới phải đạt ngưỡng nhận mới.
 
-AlignmentResult bổ sung target_id, box_xyxy (box mới đo), display_box_xyxy (box làm mượt để vẽ). Chỉ vẽ box được chọn; chuyển động lớn cập nhật box ngay để tránh kéo bóng. Tâm và ngưỡng điều khiển vẫn dựa trên box mới đo. Follower xác nhận lại khi target_id thay đổi. ID là liên kết ngắn hạn theo vị trí, chưa bảo đảm danh tính của vật sau khi khuất hoặc đổi cảnh.
+AlignmentResult bổ sung target_id, box_xyxy (box mới đo), display_box_xyxy (box làm mượt để vẽ), center_verified (tâm vòng bia đã xác nhận). Chỉ vẽ box được chọn; chuyển động lớn cập nhật box ngay để tránh kéo bóng. Tâm dùng điều khiển là trung điểm bbox ở chỉ AI, hoặc tâm vòng bia ở Auto + AI, lấy số đo mới không làm mượt. Follower xác nhận lại khi target_id thay đổi. ID là liên kết ngắn hạn theo vị trí, chưa bảo đảm danh tính của vật sau khi khuất hoặc đổi cảnh.
+
+## Xác nhận tâm vòng bia trước khi hiển thị và bám
+
+`target_center.py` kiểm tra ảnh camera gốc trong mỗi vùng YOLO: tìm ít nhất 3 đường biên ellipse khác kích thước, có tâm, tỷ lệ trục và hướng phù hợp. Ảnh màu có thêm kiểm tra đường biên các dải màu để chịu được mũi tên cắt qua vòng. Không dùng điểm giữa bounding box thay cho tâm bia khi kiểm tra thất bại.
+
+Với `detection_policy="verified_target"`, `robot_ai.py` chỉ chuyển các vùng có confidence >0,8 và đã qua kiểm tra này cho `TargetAligner`. Kết quả có `center_verified=True`, tọa độ tâm vòng bia và box được chọn. Không xác nhận được tâm thì không vẽ box, không đánh dấu tâm và trả `found=False`; Hybrid xử lý mất mục tiêu theo LOST_HOLD/SEARCH. Với `detection_policy="bbox"`, chỉ AI bỏ bước kiểm tra vòng bia, vẫn nhận và vẽ bbox hợp lệ khi `center_verified=False`.
+
+Đây là bước hậu xử lý hình ảnh, không thay đổi trọng số ONNX. Bia nhỏ, mờ, thiếu sáng, bị che nhiều hoặc biến dạng mạnh có thể bị loại dù YOLO nhận ra. Bộ lọc giảm lỗi tường đã kiểm tra; vật khác có nhiều vòng đồng tâm vẫn cần dữ liệu âm thực tế để đánh giá.

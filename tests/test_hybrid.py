@@ -95,6 +95,16 @@ class PolicyTests(unittest.TestCase):
             result = self.policy.step(observation(), frame, 10 + frame * .1, 15)
             self.assertEqual((result.behavior, result.movement), ("TRACK", "STOPPED"))
 
+    def test_tracking_stops_at_50_cm_and_resumes_only_above_55_cm(self):
+        self.lock_target()
+        readings = ((100, "FORWARD"), (51, "FORWARD"), (50, "STOPPED"),
+                    (49, "STOPPED"), (51, "STOPPED"), (55, "STOPPED"),
+                    (56, "FORWARD"))
+        for frame, (distance, expected) in enumerate(readings, 4):
+            with self.subTest(distance=distance, frame=frame):
+                result = self.policy.step(observation(), frame, 11 + frame * .1, distance)
+                self.assertEqual((result.behavior, result.movement), ("TRACK", expected))
+
     def test_handoff_handles_missing_and_malformed_sonar(self):
         self.lock_target()
         for frame, distance in enumerate((None, True, float("nan"), float("inf"), "100"), 4):
@@ -122,6 +132,45 @@ class BridgeTests(unittest.TestCase):
         self.command("SEARCH")
         self.assertEqual(self.state.movement, "FORWARD")
 
+    def test_auto_and_hybrid_search_start_avoidance_at_50_cm(self):
+        for hybrid in (False, True):
+            for distance, expected in ((51, "FORWARD"), (50, "BACKWARD"), (49, "BACKWARD")):
+                with self.subTest(hybrid=hybrid, distance=distance):
+                    bridge = BridgeState(clock=self.clock)
+                    if hybrid:
+                        session = bridge.claim_ai(bridge.mode_epoch, hybrid=True)["session"]
+                        bridge.command_ai(session, 1, "STOPPED", 0, behavior="SEARCH")
+                        self.clock.advance(.31)
+                    else:
+                        bridge.select_mode("AUTO")
+                    bridge.update_simulation(self.clock(), distance)
+                    self.assertEqual(bridge.movement, expected)
+
+    def test_auto_turns_at_70_percent_and_manual_turns_at_80_percent(self):
+        turn_paths = {
+            "LEFT": ((0, 10), (.41, 100), (.26, 100), (.26, 100)),
+            "RIGHT": ((0, 10), (.41, 100), (.26, 10), (.26, 10), (.36, 100), (.26, 100)),
+        }
+        for hybrid in (False, True):
+            for direction, readings in turn_paths.items():
+                with self.subTest(hybrid=hybrid, direction=direction):
+                    bridge = BridgeState(clock=self.clock)
+                    if hybrid:
+                        session = bridge.claim_ai(bridge.mode_epoch, hybrid=True)["session"]
+                        bridge.command_ai(session, 1, "STOPPED", 0, behavior="SEARCH")
+                        self.clock.advance(.31)
+                    else:
+                        bridge.select_mode("AUTO")
+                    for sequence, (elapsed, distance) in enumerate(readings, 2):
+                        if hybrid:
+                            bridge.command_ai(session, sequence, "STOPPED", 0, behavior="SEARCH")
+                        self.clock.advance(elapsed)
+                        bridge.update_simulation(self.clock(), distance)
+                    self.assertEqual((bridge.movement, bridge.speed_percent), (direction, 70))
+                    bridge.select_mode("MANUAL")
+                    bridge.command("/" + direction.lower(), bridge.mode_epoch)
+                    self.assertEqual((bridge.movement, bridge.speed_percent), (direction, 80))
+
     def test_search_timeout_stops_and_revokes_old_session(self):
         self.command("SEARCH")
         self.clock.advance(.51)
@@ -147,7 +196,7 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(self.state.movement, "STOPPED")
 
     def test_tracking_cannot_move_until_new_centered_sensor_read(self):
-        self.command("TRACK", "LEFT", 70)
+        self.command("TRACK", "LEFT", 62)
         self.assertEqual(self.state.movement, "STOPPED")
         self.assertEqual(self.state.snapshot()["distance_cm"], 0)
         self.clock.advance(.31)
@@ -164,7 +213,9 @@ class BridgeTests(unittest.TestCase):
     def test_ai_distance_guard_and_hysteresis_stay_active(self):
         self.command("TRACK", "FORWARD", 50)
         self.clock.advance(.31)
-        for distance, expected in ((100, "FORWARD"), (20, "STOPPED"), (24, "STOPPED"), (26, "FORWARD"), (0, "STOPPED")):
+        for distance, expected in ((100, "FORWARD"), (51, "FORWARD"), (50, "STOPPED"),
+                                   (49, "STOPPED"), (51, "STOPPED"), (55, "STOPPED"),
+                                   (56, "FORWARD"), (0, "STOPPED")):
             self.clock.advance(.08)
             self.command("TRACK", "FORWARD", 50)
             self.state.update_simulation(self.clock(), distance)
@@ -271,7 +322,8 @@ class ServiceIntegrationTests(unittest.TestCase):
         self.assertEqual((self.state.hybrid_state, self.state.movement), ("HOLD", "STOPPED"))
         for _ in range(9):
             self.tick(True)
-        self.assertEqual((self.state.hybrid_state, self.state.movement), ("TRACK", "FORWARD"))
+        self.assertEqual((self.state.hybrid_state, self.state.movement, self.state.speed_percent),
+                         ("TRACK", "FORWARD", 45))
         self.tick(False)
         self.assertEqual((self.state.hybrid_state, self.state.movement), ("HOLD", "STOPPED"))
         for _ in range(22):

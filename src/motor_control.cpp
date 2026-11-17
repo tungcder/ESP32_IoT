@@ -29,12 +29,17 @@ namespace {
     uint8_t b,
     uint8_t c,
     uint8_t d,
-    uint8_t duty
+    uint8_t leftDuty,
+    uint8_t rightDuty
   ) {
-    ledcWrite(Config::MOTOR_IN1, a ? duty : 0);
-    ledcWrite(Config::MOTOR_IN2, b ? duty : 0);
-    ledcWrite(Config::MOTOR_IN3, c ? duty : 0);
-    ledcWrite(Config::MOTOR_IN4, d ? duty : 0);
+    ledcWrite(Config::MOTOR_IN1, a ? leftDuty : 0);
+    ledcWrite(Config::MOTOR_IN2, b ? leftDuty : 0);
+    ledcWrite(Config::MOTOR_IN3, c ? rightDuty : 0);
+    ledcWrite(Config::MOTOR_IN4, d ? rightDuty : 0);
+  }
+
+  void setMotorPins(uint8_t a, uint8_t b, uint8_t c, uint8_t d, uint8_t duty) {
+    setMotorPins(a, b, c, d, duty, duty);
   }
 }
 
@@ -258,13 +263,21 @@ void setMotorSpeeds(int leftPercent, int rightPercent) {
 void applyAIMovement(RobotMovement movement, uint8_t speedPercent) {
   const bool turning = movement == RobotMovement::Left || movement == RobotMovement::Right;
   const uint8_t limit = turning ? Config::AI_TURN_SPEED_PERCENT : Config::MOTOR_SPEED_PERCENT;
-  const uint8_t duty = (255 * min(speedPercent, limit) + 50) / 100;
-  if (!duty || movement == RobotMovement::Stopped) { stopCar(); return; }
+  const uint8_t percent = min(speedPercent, limit);
+  if (!percent || movement == RobotMovement::Stopped) { stopCar(); return; }
+  const uint8_t leftPercent = turning
+      ? (percent > Config::AI_TURN_LEFT_REDUCTION_PERCENT
+          ? percent - Config::AI_TURN_LEFT_REDUCTION_PERCENT : 0)
+      : percent;
+  const uint8_t rightPercent = movement == RobotMovement::Forward
+      ? min(100, percent + Config::AI_FORWARD_RIGHT_BOOST_PERCENT) : percent;
+  const uint8_t leftDuty = (255 * leftPercent + 50) / 100;
+  const uint8_t rightDuty = (255 * rightPercent + 50) / 100;
   LedDirection led = LedDirection::Stop;
   switch (movement) {
-    case RobotMovement::Forward: setMotorPins(1, 0, 1, 0, duty); led = LedDirection::Forward; break;
-    case RobotMovement::Left: setMotorPins(1, 0, 0, 1, duty); led = LedDirection::Left; break;
-    case RobotMovement::Right: setMotorPins(0, 1, 1, 0, duty); led = LedDirection::Right; break;
+    case RobotMovement::Forward: setMotorPins(1, 0, 1, 0, leftDuty, rightDuty); led = LedDirection::Forward; break;
+    case RobotMovement::Left: setMotorPins(1, 0, 0, 1, leftDuty, rightDuty); led = LedDirection::Left; break;
+    case RobotMovement::Right: setMotorPins(0, 1, 1, 0, leftDuty, rightDuty); led = LedDirection::Right; break;
     default: stopCar(); return;
   }
   moving = true;

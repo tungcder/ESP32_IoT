@@ -4,9 +4,9 @@ import math
 
 from yolov8n.target_alignment import AlignmentConfig
 
-AI_FORWARD_SPEED_PERCENT = 50
-AI_TURN_SPEED_PERCENT = 70
-AI_MIN_TURN_SPEED_PERCENT = 64
+AI_FORWARD_SPEED_PERCENT = 45
+AI_TURN_SPEED_PERCENT = 62
+AI_MIN_TURN_SPEED_PERCENT = 58
 
 
 @dataclass(frozen=True)
@@ -98,13 +98,13 @@ class Follower:
         if not valid_distance:
             self.state, self.centered = "SENSOR_HOLD", 0
             return result("Dừng: cảm biến siêu âm chưa có số đo hợp lệ")
-        if distance <= 20:
+        if distance <= 50:
             self.distance_hold = True
-        elif distance > 25:
+        elif distance > 55:
             self.distance_hold = False
         if self.distance_hold:
             self.state, self.centered = "DISTANCE_HOLD", 0
-            return result("Dừng ở 20 cm; chờ khoảng cách lớn hơn 25 cm")
+            return result("Dừng ở 50 cm; chờ khoảng cách lớn hơn 55 cm")
 
         if not self.aligning:
             if abs(error) <= self.alignment.start_threshold:

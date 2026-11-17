@@ -93,9 +93,9 @@ trên máy chủ, chưa có video hoặc streaming 3D sang trình duyệt của 
 - Server xử lý nhiều kết nối đồng thời để tab mở sẵn hoặc máy khác không chặn
   lệnh điều khiển. Điều này không cấp quyền lái riêng cho từng người.
 - **OBSTACLE AUTO** chạy logic Python tương ứng `src/obstacle_avoid.cpp`:
-  xe tiến/lùi ở 50% PWM, quay trái/phải ở 80% PWM; sonar giữ 90° khi tiến. Khoảng cách phía trước <=40 cm
+  xe tiến/lùi ở 50% PWM, quay trái/phải ở 70% PWM; sonar giữ 90° khi tiến. Khoảng cách phía trước <=50 cm
   thì xe lùi mục tiêu 8 cm, dừng ngắn để đo bên trái tại 135° rồi 180°.
-  Cả hai góc trái >40 cm thì rẽ trái mục tiêu 90°. Nếu trái bị chặn, đo bên phải
+  Cả hai góc trái >50 cm thì rẽ trái mục tiêu 90°. Nếu trái bị chặn, đo bên phải
   tại 45° rồi 0°; phải trống thì rẽ phải mục tiêu 90°. Nếu cả hai phía bị chặn,
   lùi thêm mục tiêu 12 cm và quét lại từ trái. Không quay vào hướng đã bị chặn.
   Quãng lùi/góc quay dùng thời gian cấu hình chung với firmware, chưa đo bằng
@@ -122,12 +122,12 @@ và giao thức phiên/lệnh tương ứng firmware để nhận lệnh từ la
 [Ứng dụng AI](../../ai/README.md) nhận camera iPhone qua WebRTC và chạy YOLOv8n riêng;
 chưa có camera ảo trong world. Đặt địa chỉ xe `http://127.0.0.1:8081` trên web AI.
 
-### Tốc độ quay AI 70–64% PWM
+### Tốc độ quay AI 62–58% PWM
 
 Webots nhận lệnh từ cùng `ai/follower.py` dùng cho xe thật, không có bản sao
 thuật toán AI riêng. Vượt line ngoài 35–65%: dừng ít nhất 150 ms rồi quay ở
-70% PWM. Khi tâm mục tiêu tiến về vùng dừng 40–60%, tốc độ giảm dần qua 67%
-về 64% PWM; vào vùng dừng thì dừng quay, xác nhận 3 ảnh mới rồi tiến 50% PWM.
+62% PWM. Khi tâm mục tiêu tiến về vùng dừng 40–60%, tốc độ giảm dần
+về 58% PWM; vào vùng dừng thì dừng quay, xác nhận 3 ảnh mới rồi tiến 45% PWM.
 
 1. Chạy Webots bằng `simulation/run.ps1`, giữ world ở Real-time.
 2. Khởi động lại ứng dụng AI bằng `ai/run.ps1` để nạp tốc độ mới.
@@ -137,7 +137,7 @@ về 64% PWM; vào vùng dừng thì dừng quay, xác nhận 3 ảnh mới rồ
 4. Quét QR bằng iPhone, mở Safari và bật camera trước. Khi có hình mới,
    bấm **Bắt đầu bám mục tiêu**. Dịch mục tiêu sang trái/phải và về vùng giữa.
 5. Trên trang web Webots, mục **Thông tin mô phỏng Webots** hiển thị chế độ,
-   chuyển động và PWM động cơ để đối chiếu 70% → 67% → 64% → 0%.
+   chuyển động và PWM động cơ để đối chiếu 62% → 60% → 58% → 0%.
 
 Camera iPhone trong phép thử này không tự đổi hướng theo xe 3D; cần dịch
 mục tiêu hoặc xoay điện thoại để đưa tâm mục tiêu về vùng giữa. Webots áp dụng

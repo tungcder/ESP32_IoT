@@ -98,7 +98,7 @@ const char webpage[] PROGMEM = R"rawliteral(
   <section class="card" id="manualPanel" hidden>
     <h2>Điều khiển thủ công</h2>
     <p id="manualHelp">Giữ nút mũi tên để xe di chuyển; thả nút để dừng.</p>
-    <div class="seg" role="group" aria-label="Cách điều khiển">
+    <div class="seg" id="manualInputSelector" role="group" aria-label="Cách điều khiển">
       <button class="seg-btn active" id="inputWeb" type="button" aria-pressed="true"><strong>Nút trên web</strong><span>Giữ mũi tên để chạy</span></button>
       <button class="seg-btn" id="inputPad" type="button" aria-pressed="false"><strong>Tay cầm</strong><span>Qua chương trình trên laptop</span></button>
     </div>
@@ -140,7 +140,7 @@ const char webpage[] PROGMEM = R"rawliteral(
   let mode = null, held = null, heartbeat = null, pending = null, sending = false, switching = false;
   let latestId = 0, lastUptime = null, modeRevision = 0;
   let modeEpoch = null, bootId = null, viewingAI = false;
-  let manualInput = 'WEB', padAge = -1, padLeft = 0, padRight = 0;
+  let manualInput = 'WEB', manualInputSupported = false, padAge = -1, padLeft = 0, padRight = 0;
   const logs = {AUTO: [], MANUAL: [], AI: [], HYBRID: []};
   const hiddenIds = {AUTO: 0, MANUAL: 0, AI: 0, HYBRID: 0};
   const logMode = () => mode === 'HYBRID' ? 'HYBRID' : viewingAI ? 'AI' : (mode || 'MANUAL');
@@ -161,6 +161,7 @@ const char webpage[] PROGMEM = R"rawliteral(
   }
 
   function applyInput(state) {
+    manualInputSupported = state.manual_input === 'WEB' || state.manual_input === 'GAMEPAD';
     manualInput = state.manual_input === 'GAMEPAD' ? 'GAMEPAD' : 'WEB';
     padAge = typeof state.gamepad_age_ms === 'number' ? state.gamepad_age_ms : -1;
     padLeft = state.gamepad_left || 0;
@@ -170,6 +171,7 @@ const char webpage[] PROGMEM = R"rawliteral(
 
   function renderInput() {
     const pad = manualInput === 'GAMEPAD';
+    byId('manualInputSelector').hidden = !manualInputSupported;
     for (const [id, selected] of [['inputWeb', !pad], ['inputPad', pad]]) {
       byId(id).classList.toggle('active', selected);
       byId(id).setAttribute('aria-pressed', String(selected));
@@ -246,7 +248,9 @@ const char webpage[] PROGMEM = R"rawliteral(
   function stopMove(force = false) {
     const wasHeld = held !== null;
     clearHold();
-    if ((wasHeld || force) && mode === 'MANUAL' && !switching) request('/stop');
+    if ((wasHeld || force) && mode === 'MANUAL' && !switching) {
+      request(manualInput === 'GAMEPAD' ? '/manualinput?source=web' : '/stop');
+    }
   }
 
   function startMove(direction) {
@@ -275,7 +279,7 @@ const char webpage[] PROGMEM = R"rawliteral(
   byId('padStop').addEventListener('click', () => stopMove(true));
 
   function chooseInput(source) {
-    if (mode !== 'MANUAL' || switching || viewingAI) return;
+    if (!manualInputSupported || mode !== 'MANUAL' || switching || viewingAI) return;
     if ((source === 'gamepad') === (manualInput === 'GAMEPAD')) return;
     clearHold();
     request('/manualinput?source=' + source);
